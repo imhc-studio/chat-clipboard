@@ -17,6 +17,7 @@
 <meta property="og:image:height" content="630">
 <meta property="og:url" content="https://imhc-studio.github.io/chat-clipboard/">
 <meta name="twitter:card" content="summary_large_image">
+<script data-goatcounter="https://imhc-studio.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>Dolfan聊天室剪貼簿💬</title>
 <style>
@@ -96,6 +97,8 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
 .lennote{font-size:13px;font-weight:700;border-radius:10px;padding:8px 12px;background:var(--soft);color:var(--ink)}
 .lennote.warn{background:color-mix(in srgb,var(--me) 14%,var(--surface))}
 .lennote:empty{display:none}
+.cut.on{background:var(--me);border-color:var(--me);color:#fff}
+.pbreak.manual{cursor:pointer}
 .pbreak{list-style:none;text-align:center;font-size:12px;font-weight:700;color:var(--me);border-top:2px dashed var(--me);padding-top:4px;margin-top:4px}
 .rule{display:flex;flex-direction:column;gap:4px;font-size:13px;border-radius:12px;padding:10px 12px;background:var(--soft);border:1px solid var(--line)}
 .rule strong{font-size:14px}
@@ -130,7 +133,7 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
   <header>
     <h1>Dolfan聊天室<em>剪貼簿</em>💬</h1>
     <p class="lead">上傳聊天室截圖，自動挑出你和偶像的訊息，去掉重複的，接成一張可以發限動的圖。</p>
-    <p class="privacy">🔒 截圖只在你自己的手機裡處理，不會上傳到任何地方。</p>
+    <p class="privacy">🔒 截圖只在你自己的手機裡處理，不會上傳到任何地方。網站只統計使用次數，不收集截圖或個人資料。</p>
     <p class="privacy">🖼️ 如果聊天室背景換成照片，訊息會辨識不出來，建議先把背景換回預設（純色）再截圖。</p>
   </header>
 
@@ -138,7 +141,7 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
     <h2><span class="n">1</span>上傳截圖</h2>
     <label class="upload" for="file">＋ 選擇截圖（可一次選很多張）<input type="file" id="file" accept="image/*" multiple></label>
     <div class="note" id="demoNote">目前是範例截圖，讓你先看效果。上傳後會換成你的截圖。</div>
-    <p class="hint">💡 用手機原本的截圖最準，不要先裁切或縮放。截圖順序盡量照聊天時間。有重疊的截圖會自動接起來；沒重疊的照這裡的順序排，可以用 ← → 調整。</p>
+    <p class="hint">💡 用手機原本的截圖最準，不要先裁切或縮放。上傳後會先依訊息時間排好順序，點縮圖可以放大檢查，順序不對用 ← → 調整。</p>
     <div class="shots" id="shots"></div>
     <button class="btn clearall" id="clearAll" hidden>全部刪除</button>
   </section>
@@ -146,7 +149,7 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
   <section>
     <h2><span class="n">2</span>檢查訊息</h2>
     <div class="stats" id="stats"></div>
-    <p class="hint">打勾的會放進圖裡。順序不對就用 ↑ ↓ 調整。</p>
+    <p class="hint">打勾的會放進圖裡。順序不對用 ↑ ↓ 調整；想從某則訊息開始換下一張圖，按那則的 ✂。</p>
     <div class="lennote" id="lenNote" aria-live="polite"></div>
     <label class="chk"><input type="checkbox" id="showOthers"> 也顯示其他人的訊息（想留哪則就勾哪則）</label>
     <ol class="msgs" id="msgs"></ol>
@@ -226,6 +229,8 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
   <div class="vstage"><img id="vImg" alt="輸出圖片預覽"></div>
   <div class="vfoot">
     <button class="btn" id="vPrev" aria-label="上一張">‹ 上一張</button>
+    <button class="btn" id="vMoveL" hidden>往前移</button>
+    <button class="btn" id="vMoveR" hidden>往後移</button>
     <button class="btn primary" id="vSave">儲存這張</button>
     <span class="vhint" id="vHint">長按圖片就能存到相簿</span>
     <button class="btn" id="vNext" aria-label="下一張">下一張 ›</button>
@@ -238,10 +243,79 @@ const S = {auto:true, top:32, bot:89.5, color:'#22B3CC', tol:75, logo:true, head
 const BGS = ['#DDF2F6','#FCE4EC','#FFF3D6','#E8E4FB','#FFFFFF','#1C2B30'];
 let shots = [], shotBlocks = [], nodes = [], order = [], sel = 0, demo = true;
 const $ = id => document.getElementById(id);
+// usage counts (public site only, when GoatCounter is loaded): only event names and numbers, never images or text
+const track = (name) => { try{ if (window.goatcounter && window.goatcounter.count) window.goatcounter.count({path:name, title:name, event:true}); }catch(e){} };
 const mk = (w,h) => { const c=document.createElement('canvas'); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); return c; };
 const hex = h => [1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
 const rgb = a => `rgb(${a[0]},${a[1]},${a[2]})`;
 const LOGO = {x0:.83,x1:.97,y0:.82,y1:.89};
+
+/* ---------- reading the time printed next to each message (HH:MM) ---------- */
+const DIGIT_T=(()=>{ // digit shapes drawn with the phone's own font, as 10x14 coverage grids
+  const c=mk(60,80), x=c.getContext('2d',{willReadFrequently:true}), out=[];
+  for (let n=0;n<10;n++){ x.fillStyle='#fff'; x.fillRect(0,0,60,80); x.fillStyle='#000';
+    x.font='48px -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Roboto,Arial,sans-serif'; x.textBaseline='middle'; x.fillText(String(n),8,40);
+    const p=x.getImageData(0,0,60,80).data; let x0=60,x1=-1,y0=80,y1=-1;
+    for (let y=0;y<80;y++) for (let xx=0;xx<60;xx++) if (p[(y*60+xx)*4]<128){ if(xx<x0)x0=xx; if(xx>x1)x1=xx; if(y<y0)y0=y; if(y>y1)y1=y; }
+    out.push(grid((xx,yy)=>p[(yy*60+xx)*4]<128, x0,x1+1,y0,y1+1)); }
+  return out; })();
+function grid(on,x0,x1,y0,y1){ const G=new Float32Array(140), gw=(x1-x0)/10, gh=(y1-y0)/14;
+  for (let gy=0;gy<14;gy++) for (let gx=0;gx<10;gx++){ let n=0,k=0;
+    for (let yy=Math.floor(y0+gy*gh); yy<Math.max(Math.floor(y0+(gy+1)*gh),Math.floor(y0+gy*gh)+1); yy++)
+      for (let xx=Math.floor(x0+gx*gw); xx<Math.max(Math.floor(x0+(gx+1)*gw),Math.floor(x0+gx*gw)+1); xx++){ k++; if (on(xx,yy)) n++; }
+    G[gy*10+gx]=k?n/k:0; }
+  return G; }
+function readDigit(on,x0,x1,y0,y1){
+  // a "1" is much narrower than its height
+  const g=grid(on,x0,x1,y0,y1); let best=-1,bd=1e9,second=1e9;
+  for (let n=0;n<10;n++){ let dd=0; for (let i=0;i<140;i++) dd+=Math.abs(g[i]-DIGIT_T[n][i]); if (dd<bd){ second=bd; bd=dd; best=n; } else if (dd<second) second=dd; }
+  if ((x1-x0)/(y1-y0) < 0.42) return 1;
+  return bd<38 ? best : -1;
+}
+// small or compressed screenshots: digits touch each other. Find the colon (two small dots in one column band),
+// then cut each side into two digits at its thinnest column.
+function splitTime(on,col,cx0,cx1,ry0,ry1){
+  const cw=cx1-cx0; let colon=null;
+  for (let xx=Math.round(cx0+cw*0.3); xx<cx0+cw*0.7; xx++){
+    if (!col[xx]) continue;
+    let runs=0, inRun=false, len=0, maxLen=0; for (let yy=ry0;yy<ry1;yy++){ if (on(xx,yy)){ if(!inRun){runs++; inRun=true; len=0;} len++; if(len>maxLen)maxLen=len; } else inRun=false; }
+    const dotty = runs===2 && maxLen<=Math.max(3,(ry1-ry0)*0.25);
+    if (dotty){ if (!colon) colon=[xx,xx+1]; else if (xx<=colon[1]+1) colon[1]=xx+1; }
+    else if (colon) break;
+  }
+  if (!colon) return null;
+  const cut=(a,b)=>{ if (b-a<4) return null; let best=-1,bv=1e9; for (let xx=Math.round(a+(b-a)*0.3); xx<a+(b-a)*0.7; xx++) if (col[xx]<bv){ bv=col[xx]; best=xx; } return best<0?null:[[a,best],[best+1,b]]; };
+  let lEnd=colon[0]; while (lEnd>cx0 && !col[lEnd-1]) lEnd--;
+  let rStart=colon[1]; while (rStart<cx1 && !col[rStart]) rStart++;
+  const L=cut(cx0,lEnd), R=cut(rStart,cx1); if (!L||!R) return null;
+  return [L[0],L[1],colon,R[0],R[1]];
+}
+function readTime(d,w,top,bot,U,inL){
+  const ry0=Math.max(top,Math.round(bot-U*0.075)), ry1=bot;
+  const on=(xx,yy)=>{ if (inL&&inL(xx,yy)) return false; const i=(yy*w+xx)*4, mx=Math.max(d[i],d[i+1],d[i+2]), mn=Math.min(d[i],d[i+1],d[i+2]), a=(d[i]+d[i+1]+d[i+2])/3; return mx-mn<35 && a>=90 && a<=222; };
+  const col=new Uint16Array(w); for (let xx=0;xx<w;xx++){ let n=0; for (let yy=ry0;yy<ry1;yy++) if (on(xx,yy)) n++; col[xx]=n; }
+  // clusters of columns (words)
+  const gapW=Math.max(3,U*0.012), clusters=[]; let s0=-1,last=-1;
+  for (let xx=0;xx<w;xx++){ if (col[xx]){ if (s0<0) s0=xx; else if (xx-last>gapW){ clusters.push([s0,last+1]); s0=xx; } last=xx; } }
+  if (s0>=0) clusters.push([s0,last+1]);
+  for (const [cx0,cx1] of clusters){
+    const cw=cx1-cx0; if (cw<U*0.04 || cw>U*0.13) continue;
+    let glyphs=[]; let g0=-1;
+    for (let xx=cx0;xx<=cx1;xx++){ if (xx<cx1 && col[xx]){ if (g0<0) g0=xx; } else if (g0>=0){ glyphs.push([g0,xx]); g0=-1; } }
+    if (glyphs.length!==5) glyphs=splitTime(on,col,cx0,cx1,ry0,ry1);
+    if (!glyphs || glyphs.length!==5) continue;
+    const box=glyphs.map(([a,b])=>{ let y0=1e9,y1=-1; for (let yy=ry0;yy<ry1;yy++) for (let xx=a;xx<b;xx++) if (on(xx,yy)){ if(yy<y0)y0=yy; if(yy>y1)y1=yy; } return [a,b,y0,y1+1]; });
+    const hDig=Math.max(...[0,1,3,4].map(i=>box[i][3]-box[i][2]));
+    if (hDig<U*0.012 || hDig>U*0.04) continue;
+    const colonOk = (box[2][1]-box[2][0]) < hDig*0.45;
+    if (!colonOk) continue;
+    const ds=[0,1,3,4].map(i=>readDigit(on,box[i][0],box[i][1],box[i][2],box[i][3]));
+    if (ds.some(v=>v<0)) continue;
+    const hh=ds[0]*10+ds[1], mm=ds[2]*10+ds[3];
+    if (hh<24 && mm<60) return hh*60+mm;
+  }
+  return null;
+}
 
 /* ---------- analysis ---------- */
 function analyzeShot(shot,hint,fullW,U){
@@ -264,11 +338,15 @@ function analyzeShot(shot,hint,fullW,U){
   const bgGray=(bgc[0]+bgc[1]+bgc[2])/3;
   const step = Math.max(1, Math.round(w/450));
   // app "chrome" rows: pinned purple banners (almost full width) or full-width even lines/shadows that differ from the background
-  const chrome = y => { let sum=0,k=0,pur=0; const mn=[255,255,255], mx=[0,0,0];
-    for (let xx=0; xx<w; xx+=step){ const i=(y*w+xx)*4; for (let c=0;c<3;c++){ const v=d[i+c]; if(v<mn[c])mn[c]=v; if(v>mx[c])mx[c]=v; } sum+=(d[i]+d[i+1]+d[i+2])/3; k++; if (d[i+2]-d[i+1]>40 && d[i]-d[i+1]>15) pur++; }
-    // even colour across the whole width (checked per colour channel, so a pale bubble edge on a coloured background does not count)
-    const even=Math.max(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])<=8, m=Math.abs(sum/k-bgGray);
-    return pur/k>=0.85 || (even && m>=3); };
+  const hR=new Uint16Array(256), hG=new Uint16Array(256), hB=new Uint16Array(256);
+  const med=(hst,k)=>{ let c=0; for (let v=0;v<256;v++){ c+=hst[v]; if (c*2>=k) return v; } return 255; };
+  const chrome = y => { let k=0,pur=0; hR.fill(0); hG.fill(0); hB.fill(0);
+    for (let xx=0; xx<w; xx+=step){ const i=(y*w+xx)*4; hR[d[i]]++; hG[d[i+1]]++; hB[d[i+2]]++; k++; if (d[i+2]-d[i+1]>40 && d[i]-d[i+1]>15) pur++; }
+    if (pur/k>=0.85) return true;
+    // even colour across the whole width (per channel, around the row's typical colour); a few noisy pixels are allowed
+    const mid=[med(hR,k),med(hG,k),med(hB,k)];
+    let odd=0; for (let xx=0; xx<w; xx+=step){ const i=(y*w+xx)*4; if (Math.abs(d[i]-mid[0])>5||Math.abs(d[i+1]-mid[1])>5||Math.abs(d[i+2]-mid[2])>5) odd++; }
+    return odd<=k*0.05 && Math.abs((mid[0]+mid[1]+mid[2])/3-bgGray)>=3; };
   const ic = hex(S.color);
   const isIdol = i => Math.abs(d[i]-ic[0])+Math.abs(d[i+1]-ic[1])+Math.abs(d[i+2]-ic[2]) <= S.tol;
   // the round send button (idol colour, far right of the input bar) marks where the input bar is,
@@ -283,8 +361,9 @@ function analyzeShot(shot,hint,fullW,U){
     y0 = lastTop+1;
     // input bar: the highest app-chrome row in the bottom part of the screenshot (the divider above the input box)
     let inputTop=-1;
-    if (hint>0) inputTop=hint;
-    else if (sendTop>0) inputTop=Math.round(sendTop-U*0.03);
+    // the send button is the most exact marker; the shared-bottom comparison is the fallback
+    if (sendTop>0) inputTop=Math.round(sendTop-U*0.03);
+    else if (hint>0) inputTop=hint;
     else for (let y=Math.max(Math.round(h*0.5),Math.round(h-U*0.3)); y<h; y++) if (chrome(y)){ inputTop=y; break; }
     y1 = inputTop>=0 ? inputTop : h;
     // the floating button sits at the right edge of a full-width screenshot; skip it when the sides were cropped
@@ -292,6 +371,24 @@ function analyzeShot(shot,hint,fullW,U){
   } else {
     y0 = Math.round(h*S.top/100); y1 = Math.min(h, Math.round(h*S.bot/100));
     if (S.logo && w>=fullW*0.98) L={x0:Math.round(w*LOGO.x0),x1:Math.round(w*LOGO.x1),y0:Math.round(h*LOGO.y0),y1:Math.round(h*LOGO.y1)};
+  }
+  // find the floating button itself: a ring of strong colour with a pale centre near the right edge
+  if (S.logo && w>=fullW*0.98){
+    const sat = i => Math.max(d[i],d[i+1],d[i+2])-Math.min(d[i],d[i+1],d[i+2]);
+    const pale = i => sat(i)<45 && d[i]+d[i+1]+d[i+2]>600;
+    let best=null;
+    for (const cxf of [0.894,0.898,0.902,0.906]){ const cx=Math.round(w*cxf);
+      for (let cy=Math.round(h-U*0.08); cy>h*0.35; cy-=2){
+        let paleN=0; for (const [dx,dy] of [[0,0],[-6,0],[6,0],[0,-6],[0,6]]){ const i=((cy+dy)*w+cx+dx)*4; if (i>=0 && i<d.length && pale(i)) paleN++; }
+        if (paleN<3) continue;
+        for (let rf=0.050; rf<=0.066; rf+=0.004){ const r=U*rf; let hits=0;
+          for (let a=0; a<12; a++){ const px=Math.round(cx+r*Math.cos(a*Math.PI/6)), py=Math.round(cy+r*Math.sin(a*Math.PI/6));
+            if (px<0||px>=w||py<0||py>=h) continue; const i=(py*w+px)*4; if (sat(i)>50) hits++; }
+          if (hits>=9 && (!best || hits>best.hits)) best={cx,cy,r,hits};
+        }
+      }
+    }
+    if (best){ const m=U*0.012; L={x0:Math.round(best.cx-best.r-m),x1:Math.round(best.cx+best.r+m),y0:Math.round(best.cy-best.r-m),y1:Math.round(best.cy+best.r+m)}; }
   }
   const inL = (px,py) => L && px>=L.x0 && px<L.x1 && py>=L.y0 && py<L.y1;
   const blank = new Uint8Array(h);
@@ -325,8 +422,18 @@ function analyzeShot(shot,hint,fullW,U){
     const icMin=Math.min(...ic), hueOk = i => { const r=d[i]-icMin, g=d[i+1]-icMin, b=d[i+2]-icMin;
       const ir=ic[0]-icMin, ig=ic[1]-icMin, ib=ic[2]-icMin, len=Math.hypot(ir,ig,ib)||1, l2=Math.hypot(r,g,b);
       return l2>40 && (r*ir+g*ig+b*ib)/(len*l2) > 0.93 && Math.max(d[i],d[i+1],d[i+2])-Math.min(d[i],d[i+1],d[i+2])>60; };
-    for (let y=top; y<Math.min(bot,top+U*0.07); y++) for (let xx=Math.round(U*0.15); xx<Math.min(w,U*0.75); xx++){ if (hueOk((y*w+xx)*4)) nameTeal++; }
-    const type = (tc/n > 0.012 || nameTeal >= 25*(U/924)**2) ? 'idol' : (minX > U*0.17 ? 'me' : 'other');
+    // Look at how the name begins (just right of the avatar). An idol's name is printed in the idol colour from its
+    // first letter, whatever the group is called; a fan's name starts in grey, so a coloured emoji after it does not count.
+    const hueLoose = i => { const r=d[i]-icMin, g=d[i+1]-icMin, b=d[i+2]-icMin;
+      const ir=ic[0]-icMin, ig=ic[1]-icMin, ib=ic[2]-icMin, len=Math.hypot(ir,ig,ib)||1, l2=Math.hypot(r,g,b);
+      return l2>20 && (r*ir+g*ig+b*ib)/(len*l2) > 0.9 && Math.max(d[i],d[i+1],d[i+2])-Math.min(d[i],d[i+1],d[i+2])>25; };
+    const ny1=Math.min(bot,Math.round(top+U*0.05)), nxS=Math.round(U*0.155);
+    let xs=-1; for (let xx=nxS; xx<Math.min(w,U*0.5) && xs<0; xx++) for (let y=top; y<ny1; y++) if (!isBg((y*w+xx)*4)){ xs=xx; break; }
+    let tealish=0, greyish=0;
+    if (xs>=0) for (let y=top; y<ny1; y++) for (let xx=xs; xx<Math.min(w,xs+U*0.03); xx++){ const i=(y*w+xx)*4; if (isBg(i)) continue;
+      if (hueLoose(i)) tealish++; else if (Math.max(d[i],d[i+1],d[i+2])-Math.min(d[i],d[i+1],d[i+2])<25) greyish++; }
+    nameTeal = (tealish >= 8*(U/924)**2 && tealish > greyish*2) ? 999 : 0;
+    const type = (tc/n > 0.012 || nameTeal >= 15*(U/924)**2) ? 'idol' : (minX > U*0.17 ? 'me' : 'other');
     // avatar size (the round profile photo at the left): the longest unbroken vertical run of content in the first columns
     let D=0;
     // only the columns up to the first empty column after the avatar (the name and bubble start further right)
@@ -336,9 +443,12 @@ function analyzeShot(shot,hint,fullW,U){
     for (let cy=0; cy<GH; cy++){ const py=Math.min(bot-1,top+Math.floor((cy+.5)*cell));
       for (let cx=0; cx<GW; cx++){ const px=Math.floor((cx+.5)*cell), i=(py*w+px)*4;
         fp[cy*GW+cx] = (px>=w || inL(px,py)) ? bgGray : (d[i]+d[i+1]+d[i+2])/3; } }
-    out.push({top,bot,type,D,fp,GH,bgg:(bgc[0]+bgc[1]+bgc[2])/3,hn:bh/w,partial,L,logoHit:!!(L && bot>L.y0 && top<L.y1),bg:bgc});
+    const time = partial ? null : readTime(d,w,top,bot,U,inL);
+    out.push({top,bot,type,D,time,fp,GH,bgg:(bgc[0]+bgc[1]+bgc[2])/3,hn:bh/w,partial,L,logoHit:!!(L && bot>L.y0 && top<L.y1),bg:bgc});
   }
-  const Ds=out.filter(b=>!b.partial&&b.D>0).map(b=>b.D).sort((a,b)=>a-b);
+  // avatars with a white background measure smaller than they are: ignore readings far below the largest one
+  let Ds=out.filter(b=>!b.partial&&b.D>0).map(b=>b.D).sort((a,b)=>a-b);
+  if (Ds.length) { const big=Ds[Ds.length-1]; Ds=Ds.filter(v=>v>=big*0.8); }
   // no avatar in this screenshot (only my messages): the shortest of my bubbles is a one-line bubble,
   // which is about the same size as an avatar (x1.07)
   const mine=out.filter(b=>!b.partial&&b.type==='me').map(b=>b.bot-b.top).sort((a,b)=>a-b);
@@ -384,16 +494,25 @@ function analyzeAll(){
   const both=shotBlocks.filter(sb=>sb.Dav&&sb.minMe).map(sb=>sb.Dav/sb.minMe).sort((a,b)=>a-b);
   const ratio = both.length ? both[both.length>>1] : 1.07;
   shotBlocks.forEach(sb=>{ sb.D = sb.Dav || (sb.minMe ? Math.round(sb.minMe*ratio) : 0); sb.Dsrc = sb.Dav ? 'avatar' : (sb.minMe ? 'bubble' : ''); });
-  const full=shotBlocks.filter((sb,i)=>sb.D && shots[i].w>=fullW*0.98).map(sb=>sb.D).sort((a,b)=>a-b);
+  // screenshots with the most common size come straight from the same phone: they are never resized.
+  // Only screenshots of another size (cropped or saved smaller) are matched to them by avatar size.
+  const sizeCount=new Map(); shots.forEach(s=>{ const k=s.w+'x'+s.h; sizeCount.set(k,(sizeCount.get(k)||0)+1); });
+  let refKey=null, best=-1; for (const [k,n] of sizeCount){ const w=+k.split('x')[0]; if (n>best || (n===best && w>+refKey.split('x')[0])){ best=n; refKey=k; } }
+  const isRef = s => s.w+'x'+s.h===refKey;
+  const refDs=shotBlocks.filter((sb,i)=>sb.D && isRef(shots[i])).map(sb=>sb.D).sort((a,b)=>a-b);
   const all=shotBlocks.filter(sb=>sb.D).map(sb=>sb.D).sort((a,b)=>a-b);
-  const Dref = full.length ? full[full.length>>1] : (all.length ? all[all.length>>1] : 0);
+  const Dref = refDs.length ? refDs[refDs.length>>1] : (all.length ? all[all.length>>1] : 0);
   let changed=false;
   shots.forEach((s,i)=>{ const D=shotBlocks[i].D;
-    const f = Dref && D ? Dref/D : 1;
-    if (Math.abs(f-1)>0.03){ const c=mk(s.w*f,s.h*f); const x=c.getContext('2d'); x.imageSmoothingQuality='high'; x.drawImage(s.orig.img,0,0,c.width,c.height); s.img=c; s.w=c.width; s.h=c.height; changed=true; } });
+    const f = isRef(s) ? 1 : (Dref && D ? Dref/D : 1);
+    if (Math.abs(f-1)>0.06){ const c=mk(s.w*f,s.h*f); const x=c.getContext('2d'); x.imageSmoothingQuality='high'; x.drawImage(s.orig.img,0,0,c.width,c.height); s.img=c; s.w=c.width; s.h=c.height; changed=true; } });
   const U = Dref ? Dref/0.108 : fullW;
   shots.forEach(s=>{ s.scale = s.w/s.orig.w; });
   if (changed || Dref){ fullW=Math.max(...shots.map(s=>s.w)); const hints=inputHints(); shotBlocks = shots.map(s=>analyzeShot(s,hints.get(s),fullW,U)); }
+  shotBlocks.forEach((sb,i)=>{ const t=sb.blocks.map(b=>b.time).filter(v=>v!=null).sort((a,b)=>a-b); const mid=t.length?t[(t.length-1)>>1]:null;
+    // trust it only when at least two messages agree (within 2 minutes); otherwise leave the screenshot where it was
+    const agree=mid==null?0:t.filter(v=>Math.abs(v-mid)<=2).length;
+    shots[i].tmin = agree>=2 ? mid : null; });
   nodes = [];
   const seqs = [];
   shotBlocks.forEach((sb,si) => {
@@ -445,19 +564,39 @@ function drawBlock(ctx,b,dx,dy,dw){
 function items(){
   const list=[];
   if (S.header && shots.length){
-    const s=shots.find(t=>t.h/t.w>2); if (s){ const sy=Math.round(s.w*0.115), sh=Math.round(s.w*0.125);
-    list.push({id:'header', h:dw=>sh*dw/refW(), draw:(c,x,y,dw)=>{ const k=dw/refW(); c.drawImage(s.img,0,sy,s.w,sh,x+(dw-s.w*k)/2,y,s.w*k,sh*k); }}); }
+    const s=shots.find(t=>t.h/t.w>2); if (s){
+    // a clean title bar: the title text is taken from the screenshot, the round back button is redrawn
+    // whole with its soft shadow (the screenshot's own button gets cut off by the status bar)
+    const bandY=s.w*0.085, bandH=s.w*0.17, hc=pixelAt(s.img, Math.round(s.w*0.62), Math.round(s.w*0.13));
+    list.push({id:'header', h:dw=>bandH*dw/refW(), draw:(c,x,y,dw)=>{ const k=dw/refW(), ox=x+(dw-s.w*k)/2, W=s.w*k;
+      c.fillStyle=hc; c.fillRect(x,y,dw,bandH*k);
+      // title: middle of the bar only
+      const tx=s.w*0.28, ty=s.w*0.125, tw=s.w*0.44, th=s.w*0.1;
+      c.drawImage(s.img,tx,ty,tw,th,ox+tx*k,y+(ty-bandY)*k,tw*k,th*k);
+      // back button
+      const cx=ox+W*0.098, cy=y+(s.w*0.176-bandY)*k, r=W*0.056;
+      c.save(); c.shadowColor='rgba(0,0,0,.10)'; c.shadowBlur=W*0.03; c.shadowOffsetY=W*0.004;
+      c.fillStyle='#FFFFFF'; c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2); c.fill(); c.restore();
+      c.strokeStyle='#1F1F1F'; c.lineWidth=W*0.0055; c.lineCap='round'; c.lineJoin='round';
+      c.beginPath(); c.moveTo(cx+W*0.011,cy-W*0.022); c.lineTo(cx-W*0.011,cy); c.lineTo(cx+W*0.011,cy+W*0.022); c.stroke();
+    }}); }
   }
   for (const id of order){ const n=nodes[id]; if (!n.on) continue;
     const {shot,sh}=blockSrc(n.rep);
-    list.push({id, h:dw=>sh*dw/refW(), draw:(c,x,y,dw)=>drawBlock(c,n.rep,x,y,dw)});
+    list.push({id, brk:!!n.brk, h:dw=>sh*dw/refW(), draw:(c,x,y,dw)=>drawBlock(c,n.rep,x,y,dw)});
   }
   return list;
 }
+function pixelAt(img,x,y){ const c=mk(1,1), t=c.getContext('2d',{willReadFrequently:true}); t.drawImage(img,x,y,1,1,0,0,1,1); const p=t.getImageData(0,0,1,1).data; return `rgb(${p[0]},${p[1]},${p[2]})`; }
 function chatBg(){ const n=nodes.find(n=>n.on); return n ? rgb(n.rep.bg) : '#fff'; }
 
 function renderLong(){
-  const its=items(); if(!its.length) return [];
+  // manual page breaks split the long picture into several
+  const all=items(); if(!all.length) return [];
+  const groups=[[]]; all.forEach(it=>{ if (it.brk && groups[groups.length-1].length) groups.push([]); groups[groups.length-1].push(it); });
+  return groups.flatMap(longOne);
+}
+function longOne(its){
   const W0=1080, gap=W0*0.012;
   let H=gap; for (const it of its) H+=it.h(W0)+gap;
   const k=Math.min(1, Math.sqrt(16e6/(W0*H)));
@@ -476,7 +615,7 @@ function paginate(its){
   const g=storyGeom(), pages=[]; let cur=[], ch=0;
   for (const it of its){
     const ih=it.h(g.IW);
-    if (cur.length && ch+g.gap+ih>g.maxH){ pages.push({its:cur,h:ch}); cur=[]; ch=0; }
+    if (cur.length && (it.brk || ch+g.gap+ih>g.maxH)){ pages.push({its:cur,h:ch}); cur=[]; ch=0; }
     ch += (cur.length?g.gap:0)+ih; cur.push(it);
   }
   if (cur.length) pages.push({its:cur,h:ch});
@@ -512,7 +651,13 @@ function markPages(){
     const its=items(); let H=0; for (const it of its) H+=it.h(1080)+1080*0.012;
     const pagesEq=Math.ceil(H/1920);
     note.textContent=`已勾選 ${sel} 則 → 長圖約 1080 × ${Math.round(H)} px` + (pagesEq>1?`（約 ${pagesEq} 個螢幕高，發限動會被縮小，建議改用「限動 9:16」分頁）`:'');
-    note.classList.toggle('warn',pagesEq>1); return;
+    note.classList.toggle('warn',pagesEq>1);
+    let k=1; its.forEach((it,j)=>{ if (!j || !it.brk) return; k++;
+      const li=ol.querySelector(`li[data-id="${it.id}"]`); if(!li) return;
+      const br=document.createElement('li'); br.className='pbreak manual'; br.textContent=`✂ 第 ${k} 張長圖從這裡開始（點這裡取消）`;
+      br.onclick=()=>{ nodes[it.id].brk=false; renderMsgs(); scheduleOut(); }; li.before(br); });
+    if (k>1) note.textContent=`已勾選 ${sel} 則 → 分成 ${k} 張長圖`;
+    return;
   }
   const pages=paginate(items());
   const per=Math.max(...pages.map(p=>p.its.filter(i=>i.id!=='header').length));
@@ -522,7 +667,9 @@ function markPages(){
     if (!pi) return;
     const first=p.its.find(i=>i.id!=='header'); if(!first) return;
     const li=ol.querySelector(`li[data-id="${first.id}"]`); if(!li) return;
-    const br=document.createElement('li'); br.className='pbreak'; br.textContent=`第 ${pi+1} 頁從這裡開始`;
+    const br=document.createElement('li'); br.className='pbreak'+(first.brk?' manual':'');
+    br.textContent = first.brk ? `✂ 第 ${pi+1} 頁從這裡開始（手動，點這裡取消）` : `第 ${pi+1} 頁從這裡開始（自動）`;
+    if (first.brk) br.onclick=()=>{ nodes[first.id].brk=false; renderMsgs(); scheduleOut(); };
     li.before(br);
   });
 }
@@ -533,8 +680,8 @@ function renderShots(){
   shots.forEach((s,i)=>{
     const d=document.createElement('div'); d.className='shot'+(i===sel?' sel':'');
     const t=mk(84*2,84*2*s.h/s.w); t.getContext('2d').drawImage(s.img,0,0,t.width,t.height);
-    t.setAttribute('role','button'); t.setAttribute('aria-label',`預覽第 ${i+1} 張的辨識結果`); t.tabIndex=0;
-    t.onclick=()=>{sel=i; renderShots(); renderPreview(); $('advDetails').open=true;};
+    t.setAttribute('role','button'); t.setAttribute('aria-label',`放大第 ${i+1} 張截圖`); t.tabIndex=0;
+    t.onclick=()=>{sel=i; renderShots(); renderPreview(); openShotViewer(i);};
     const idx=document.createElement('span'); idx.className='idx'; idx.textContent=`#${i+1}`;
     const tools=document.createElement('div'); tools.className='tools';
     const mkb=(txt,lab,fn)=>{const b=document.createElement('button'); b.className='btn small'; b.textContent=txt; b.setAttribute('aria-label',lab); b.onclick=fn; tools.appendChild(b);};
@@ -563,8 +710,11 @@ function renderMsgs(){
     const mv=(dir)=>{ const j=vi+dir; if(j<0||j>=vis.length) return; const a=order.indexOf(id), b=order.indexOf(vis[j]); [order[a],order[b]]=[order[b],order[a]]; renderMsgs(); scheduleOut(); };
     const up=document.createElement('button'); up.className='btn small'; up.textContent='↑'; up.setAttribute('aria-label','往上移'); up.onclick=()=>mv(-1);
     const dn=document.createElement('button'); dn.className='btn small'; dn.textContent='↓'; dn.setAttribute('aria-label','往下移'); dn.onclick=()=>mv(1);
+    const cut=document.createElement('button'); cut.className='btn small cut'+(n.brk?' on':''); cut.textContent='✂'; cut.title='從這則開始換下一張圖';
+    cut.setAttribute('aria-label','從這則開始換下一張圖'); cut.setAttribute('aria-pressed',!!n.brk);
+    cut.onclick=()=>{ n.brk=!n.brk; renderMsgs(); scheduleOut(); };
     const left=document.createElement('div'); left.className='side'; left.append(cb,chip);
-    side.append(up,dn); li.append(left,c,side); ol.appendChild(li);
+    side.append(up,dn,cut); li.append(left,c,side); ol.appendChild(li);
     li.onclick=e=>{ if (e.target.closest('button,input')) return; cb.click(); };
   });
 }
@@ -633,23 +783,44 @@ function updateRule(){
   el.classList.toggle('warn', n>10);
 }
 let vIdx=0;
+let vMode='out';
+async function shotUrl(s){
+  if (s.url) return s.url;
+  const b = s.blob || await new Promise(r=>{ const c=mk(s.orig.w,s.orig.h); c.getContext('2d').drawImage(s.orig.img,0,0); c.toBlob(r,'image/jpeg',0.9); });
+  s.url=URL.createObjectURL(b); return s.url;
+}
+async function openShotViewer(i){
+  if (!shots.length) return; vMode='shot';
+  vIdx=Math.max(0,Math.min(i,shots.length-1)); const s=shots[vIdx];
+  $('vImg').src=await shotUrl(s);
+  $('vCount').textContent=`截圖 #${vIdx+1} / ${shots.length}`;
+  $('vPrev').hidden=$('vNext').hidden=shots.length<2; $('vPrev').disabled=vIdx===0; $('vNext').disabled=vIdx===shots.length-1;
+  $('vMoveL').hidden=$('vMoveR').hidden=shots.length<2; $('vMoveL').disabled=vIdx===0; $('vMoveR').disabled=vIdx===shots.length-1;
+  $('vSave').hidden=true; $('vHint').hidden=true; $('vClose').textContent='← 返回';
+  $('viewer').classList.remove('long');
+  $('viewer').hidden=false; document.body.style.overflow='hidden'; $('vClose').focus();
+}
 async function openViewer(i){
-  const list=[...$('results').children]; if(!list.length) return;
+  const list=[...$('results').children]; if(!list.length) return; vMode='out'; if (vIdx!==i || $('viewer').hidden) track('preview');
   vIdx=Math.max(0,Math.min(i,list.length-1));
   const dl=await getDl();
   $('vImg').src=list[vIdx].querySelector('img').src;
   $('vCount').textContent = list.length>1 ? `${vIdx+1} / ${list.length}` : '';
   $('vPrev').hidden=$('vNext').hidden=list.length<2;
   $('vPrev').disabled=vIdx===0; $('vNext').disabled=vIdx===list.length-1;
+  $('vMoveL').hidden=$('vMoveR').hidden=true; $('vClose').textContent='← 返回修改';
   $('vSave').hidden=!dl; $('vHint').hidden=!!dl;
   $('viewer').classList.toggle('long',S.mode==='long');
   $('viewer').hidden=false; document.body.style.overflow='hidden'; $('vClose').focus();
 }
 function closeViewer(){ $('viewer').hidden=true; document.body.style.overflow=''; }
 $('vClose').onclick=closeViewer;
-$('vPrev').onclick=()=>openViewer(vIdx-1); $('vNext').onclick=()=>openViewer(vIdx+1);
+const vGo=i=>vMode==='shot'?openShotViewer(i):openViewer(i);
+$('vPrev').onclick=()=>vGo(vIdx-1); $('vNext').onclick=()=>vGo(vIdx+1);
+const vMove=dir=>{ const j=vIdx+dir; if (j<0||j>=shots.length) return; [shots[vIdx],shots[j]]=[shots[j],shots[vIdx]]; sel=j; refresh(); openShotViewer(j); };
+$('vMoveL').onclick=()=>vMove(-1); $('vMoveR').onclick=()=>vMove(1);
 $('vSave').onclick=async()=>{ const d=$('results').children[vIdx]; if(d && await save(d.blob,vIdx)) closeViewer(); };
-document.addEventListener('keydown',e=>{ if($('viewer').hidden) return; if(e.key==='Escape') closeViewer(); if(e.key==='ArrowLeft') openViewer(vIdx-1); if(e.key==='ArrowRight') openViewer(vIdx+1); });
+document.addEventListener('keydown',e=>{ if($('viewer').hidden) return; if(e.key==='Escape') closeViewer(); if(e.key==='ArrowLeft') vGo(vIdx-1); if(e.key==='ArrowRight') vGo(vIdx+1); });
 let dlP=null;
 function getDl(){ if(!dlP){ try{ dlP=(window.claude&&window.claude.use)?Promise.resolve(window.claude.use('downloads')).catch(()=>null):Promise.resolve(null);}catch(e){dlP=Promise.resolve(null);} } return dlP; }
 async function save(blob,i){
@@ -659,6 +830,19 @@ async function save(blob,i){
   catch(e){ $('status').textContent = e&&e.code==='declined' ? '取消儲存' : '這裡沒辦法直接儲存，請長按圖片儲存'; return false; }
 }
 
+// put screenshots in chat-time order (used right after an upload; manual ← → moves are kept afterwards)
+function sortShotsByTime(){
+  if (shots.length<2) return false;
+  analyzeAll();
+  // sort only the screenshots with a trusted time; the others stay in their upload slots
+  const known=shots.map((s,i)=>({s,i,t:s.tmin})).filter(k=>k.t!=null);
+  const slots=known.map(k=>k.i), sortedKnown=[...known].sort((a,b)=>(a.t-b.t)||(a.i-b.i));
+  const next=[...shots]; slots.forEach((slot,j)=>{ next[slot]=sortedKnown[j].s; });
+  const moved=next.some((s,j)=>s!==shots[j]);
+  shots=next;
+  return moved;
+}
+const fmtT=t=>t==null?'':`${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`;
 function refresh(){
   $('demoNote').hidden=!demo;
   $('clearAll').hidden = demo || !shots.length;
@@ -687,10 +871,13 @@ $('file').onchange = async e=>{
   $('status').textContent='讀取截圖中…';
   if (demo){ shots=[]; demo=false; }
   for (const f of files){
-    try{ const r=await loadImg(f); shots.push({...r,name:f.name}); }
+    try{ const r=await loadImg(f); shots.push({...r,name:f.name,blob:f}); }
     catch(err){ $('status').textContent=`有一張讀不到（${f.name}），請換成 PNG 或 JPG 再試`; }
   }
-  e.target.value=''; sel=0; refresh();
+  e.target.value=''; sel=0;
+  track('upload'); track('upload-'+(files.length>=10?'10plus':files.length<=3?'1-3':'4-9'));
+  const moved=sortShotsByTime(); refresh();
+  if (moved) $('status').textContent='已依聊天時間自動排好截圖順序';
 };
 const bindRange=(id,key,fmt)=>{ const el=$(id); el.value=S[key]; const v=$(id+'Val'); const upd=()=>v.textContent=fmt(S[key]); upd(); el.oninput=()=>{S[key]=+el.value; upd(); scheduleRefresh();}; };
 bindRange('top','top',v=>v+'%'); bindRange('bot','bot',v=>v+'%'); bindRange('tol','tol',v=>v);
@@ -739,11 +926,11 @@ function makeDemo(){
     t.font=`34px ${F}`; t.fillStyle=idol?'#fff':'#222'; t.fillText(txt,188,y+99);
     t.font=`24px ${F}`; t.fillStyle='#888'; t.fillText(time,162+bw+12,y+125); y+=131+60;
   }
-  const T=y, vis=1410, offs=[0,Math.round((T-vis)/2),T-vis];
+  const T=y, vis=1413, offs=[0,Math.round((T-vis)/2),T-vis];
   return offs.map((s,si)=>{
     const c=mk(W,H), x=c.getContext('2d'); x.fillStyle='#fff'; x.fillRect(0,0,W,H);
     x.drawImage(tall,0,s,W,vis,0,380,W,vis);
-    x.fillStyle='#fff'; x.fillRect(0,0,W,380); x.fillRect(0,1790,W,H-1790);
+    x.fillStyle='#fff'; x.fillRect(0,0,W,380); x.fillRect(0,1793,W,H-1793);
     x.fillStyle='#000'; x.font=`600 40px ${F}`; x.fillText(`6:4${3+si}`,108,75); x.font=`32px ${F}`; x.fillText('4G  89',740,75);
     x.font=`300 56px ${F}`; x.fillText('‹',72,182); x.font=`700 40px ${F}`; x.fillStyle='#22B3CC'; x.textAlign='center'; x.fillText('Star Club',462,178); x.textAlign='left';
     ['#F4B860','#9C8CF0','#F07C9C','#7FC8A9','#E9A0C0','#8BB8F0','#C9A27A','#A0A0D0'].forEach((cc,i)=>{x.fillStyle=cc; x.beginPath(); x.arc(83+i*104,310,43,0,7); x.fill();});

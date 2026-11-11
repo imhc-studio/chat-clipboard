@@ -559,13 +559,22 @@ const refW = () => Math.max(1, ...shots.map(s=>s.w));
 function drawBlock(ctx,b,dx,dy,dw){
   const {shot,sy,sh}=blockSrc(b), k=dw/refW(), dh=sh*k, bw=shot.w*k;
   const ox = b.type==='me' ? dw-bw : 0;   // my messages stay on the right, everyone else on the left
-  // padding is painted with the chat background instead of copied, so neighbouring shadows never come along
-  ctx.fillStyle=rgb(b.bg); ctx.fillRect(dx,dy,dw,dh);
-  ctx.drawImage(shot.img,0,b.top,shot.w,b.bot-b.top,dx+ox,dy+(b.top-sy)*k,bw,(b.bot-b.top)*k);
+  // every screenshot's background is shifted to one shared colour, so no faint boxes show between messages
+  const T=chatBgArr(), dR=T[0]-b.bg[0], dG=T[1]-b.bg[1], dB=T[2]-b.bg[2];
+  const cw=Math.max(1,Math.round(dw)), ch=Math.max(1,Math.round(dh)), c=mk(cw,ch), x=c.getContext('2d',{willReadFrequently:true});
+  // padding is painted with the background instead of copied, so neighbouring shadows never come along
+  x.fillStyle=rgb(b.bg); x.fillRect(0,0,cw,ch);
+  x.drawImage(shot.img,0,b.top,shot.w,b.bot-b.top,ox,(b.top-sy)*k,bw,(b.bot-b.top)*k);
   if (S.logo && b.logoHit && b.type!=='me'){
     const L=b.L, ly0=Math.max(sy,L.y0), ly1=Math.min(sy+sh,L.y1);
-    if (ly1>ly0){ ctx.fillStyle=rgb(b.bg); ctx.fillRect(dx+ox+L.x0*k-1, dy+(ly0-sy)*k-1, (L.x1-L.x0)*k+2, (ly1-ly0)*k+2); }
+    if (ly1>ly0) x.fillRect(ox+L.x0*k-1, (ly0-sy)*k-1, (L.x1-L.x0)*k+2, (ly1-ly0)*k+2);
   }
+  if ((dR||dG||dB) && Math.max(Math.abs(dR),Math.abs(dG),Math.abs(dB))<=24){
+    const im=x.getImageData(0,0,cw,ch), p=im.data;
+    for (let i=0;i<p.length;i+=4){ p[i]+=dR; p[i+1]+=dG; p[i+2]+=dB; }
+    x.putImageData(im,0,0);
+  }
+  ctx.drawImage(c,Math.round(dx),Math.round(dy));
   return dh;
 }
 function items(){
@@ -617,6 +626,7 @@ function titleCenter(s){
   s.titleY = best ? (best[0]+best[1])/2 : w*0.176; s.titleKey=S.color; return s.titleY;
 }
 function pixelAt(img,x,y){ const c=mk(1,1), t=c.getContext('2d',{willReadFrequently:true}); t.drawImage(img,x,y,1,1,0,0,1,1); const p=t.getImageData(0,0,1,1).data; return `rgb(${p[0]},${p[1]},${p[2]})`; }
+function chatBgArr(){ const n=nodes.find(n=>n.on); return n ? n.rep.bg : [255,255,255]; }
 function chatBg(){ const n=nodes.find(n=>n.on); return n ? rgb(n.rep.bg) : '#fff'; }
 
 function renderLong(){
@@ -626,7 +636,7 @@ function renderLong(){
   return groups.flatMap(longOne);
 }
 function longOne(its){
-  const W0=1080, gap=W0*0.012;
+  const W0=1080, gap=W0*0.028;
   let H=gap; for (const it of its) H+=it.h(W0)+gap;
   const k=Math.min(1, Math.sqrt(16e6/(W0*H)));
   const W=Math.floor(W0*k), c=mk(W,H*k), x=c.getContext('2d');
@@ -638,7 +648,7 @@ function storyGeom(){
   const PW=1080, PH=1920, safeT=150, safeB=180, plain=S.style==='plain';
   const m=plain?0:56, pad=plain?0:26;
   const IW=(PW-2*m-2*pad)*S.size, maxH=PH-safeT-safeB-2*pad;
-  return {PW,PH,safeT,safeB,m,pad,IW,maxH,gap:IW*0.006,plain};
+  return {PW,PH,safeT,safeB,m,pad,IW,maxH,gap:IW*0.028,plain};
 }
 function paginate(its){
   const g=storyGeom(), pages=[]; let cur=[], ch=0;
@@ -677,7 +687,7 @@ function markPages(){
   const note=$('lenNote'); const sel=order.filter(id=>nodes[id].on).length;
   if (!sel){ note.textContent=''; return; }
   if (S.mode==='long'){
-    const its=items(); let H=0; for (const it of its) H+=it.h(1080)+1080*0.012;
+    const its=items(); let H=0; for (const it of its) H+=it.h(1080)+1080*0.028;
     const pagesEq=Math.ceil(H/1920);
     note.textContent=`已勾選 ${sel} 則 → 長圖約 1080 × ${Math.round(H)} px` + (pagesEq>1?`（約 ${pagesEq} 個螢幕高，發限動會被縮小，建議改用「限動 9:16」分頁）`:'');
     note.classList.toggle('warn',pagesEq>1);

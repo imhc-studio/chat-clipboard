@@ -126,6 +126,9 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
 .viewer.long .vstage img{position:static;display:block;width:100%;max-height:none}
 .clearall{align-self:flex-start;color:var(--me);border-color:var(--me)}
 .clearall.armed{background:var(--me);color:#fff}
+.upstatus{font-size:13px;font-weight:700;color:var(--accent)}
+.upstatus:empty{display:none}
+.upstatus.warn{color:var(--me)}
 .status{font-size:13px;color:var(--muted);min-height:1.2em}
 @media (prefers-reduced-motion:no-preference){.btn{transition:background .15s}}
 </style>
@@ -148,7 +151,8 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
     <h2><span class="n">1</span>上傳截圖</h2>
     <label class="upload" for="file">＋ 選擇截圖（可一次選很多張）<input type="file" id="file" accept="image/*" multiple></label>
     <div class="note" id="demoNote">目前是範例截圖，讓你先看效果。上傳後會換成你的截圖。</div>
-    <p class="hint">上傳後會先照時間排好。點縮圖可以放大檢查，順序不對用 ← → 調整。</p>
+    <p class="hint">一次建議 20 張以內。上傳後會先照時間排好，點縮圖可以放大檢查，順序不對用 ← → 調整。</p>
+    <div class="upstatus" id="upStatus" aria-live="polite"></div>
     <div class="shots" id="shots"></div>
     <button class="btn clearall" id="clearAll" hidden>全部刪除</button>
   </section>
@@ -299,7 +303,7 @@ function splitTime(on,col,cx0,cx1,ry0,ry1){
 }
 function readTime(d,w,top,bot,U,inL){
   const ry0=Math.max(top,Math.round(bot-U*0.075)), ry1=bot;
-  const on=(xx,yy)=>{ if (inL&&inL(xx,yy)) return false; const i=(yy*w+xx)*4, mx=Math.max(d[i],d[i+1],d[i+2]), mn=Math.min(d[i],d[i+1],d[i+2]), a=(d[i]+d[i+1]+d[i+2])/3; return mx-mn<35 && a>=90 && a<=222; };
+  const on=(xx,yy)=>{ if (inL&&inL(xx,yy)) return false; const i=(yy*w+xx)*4, mx=Math.max(d[i],d[i+1],d[i+2]), mn=Math.min(d[i],d[i+1],d[i+2]), a=(d[i]+d[i+1]+d[i+2])/3; return mx-mn<35 && a>=40 && a<=222; };
   const col=new Uint16Array(w); for (let xx=0;xx<w;xx++){ let n=0; for (let yy=ry0;yy<ry1;yy++) if (on(xx,yy)) n++; col[xx]=n; }
   // clusters of columns (words)
   const gapW=Math.max(3,U*0.012), clusters=[]; let s0=-1,last=-1;
@@ -325,7 +329,13 @@ function readTime(d,w,top,bot,U,inL){
 }
 
 /* ---------- analysis ---------- */
+const anaCache=new WeakMap();
 function analyzeShot(shot,hint,fullW,U){
+  const key=[shot.w,shot.h,hint||0,fullW,Math.round(U||0),S.color,S.tol,S.logo,S.auto,S.top,S.bot].join('|');
+  const hit=anaCache.get(shot.img); if (hit && hit.key===key) return hit.res;
+  const res=analyzeShotRaw(shot,hint,fullW,U); anaCache.set(shot.img,{key,res}); return res;
+}
+function analyzeShotRaw(shot,hint,fullW,U){
   U = U || fullW;   // size unit: one full-screen width, measured in this screenshot's pixels
   const {w,h} = shot;
   const c = mk(w,h), x = c.getContext('2d',{willReadFrequently:true});
@@ -341,7 +351,8 @@ function analyzeShot(shot,hint,fullW,U){
   for (let y=0; y<h; y+=7) for (let xx=0; xx<w; xx+=7){ const i=(y*w+xx)*4;
     if (Math.abs(d[i]-q[0])<=4&&Math.abs(d[i+1]-q[1])<=4&&Math.abs(d[i+2]-q[2])<=4){ sr+=d[i]; sg+=d[i+1]; sb2+=d[i+2]; sn++; } }
   const bgc = sn ? [Math.round(sr/sn),Math.round(sg/sn),Math.round(sb2/sn)] : q;
-  const isBg = i => Math.abs(d[i]-bgc[0])+Math.abs(d[i+1]-bgc[1])+Math.abs(d[i+2]-bgc[2]) <= 36;
+  // tight: on a light-grey background (Android) my grey bubble differs from it by only a few shades
+  const isBg = i => Math.abs(d[i]-bgc[0])+Math.abs(d[i+1]-bgc[1])+Math.abs(d[i+2]-bgc[2]) <= 14;
   const bgGray=(bgc[0]+bgc[1]+bgc[2])/3;
   const step = Math.max(1, Math.round(w/450));
   // app "chrome" rows: pinned purple banners (almost full width) or full-width even lines/shadows that differ from the background
@@ -407,7 +418,8 @@ function analyzeShot(shot,hint,fullW,U){
     blank[y] = all || (mx-mn<=10 && Math.abs(sum/k-bgGray)<=45) ? 1 : 0;
   }
   // runs of content rows, merging small gaps
-  const mg = U*0.026, segs=[];
+  // Android puts messages closer together than iPhone (about half the gap), so only small gaps are bridged
+  const mg = U*0.012, segs=[];
   let s=-1, lastInk=-1;
   for (let y=y0; y<y1; y++){
     if (!blank[y]){ if (s<0) s=y; else if (y-lastInk>mg){ segs.push([s,lastInk+1]); s=y; } lastInk=y; }
@@ -435,9 +447,10 @@ function analyzeShot(shot,hint,fullW,U){
       const ir=ic[0]-icMin, ig=ic[1]-icMin, ib=ic[2]-icMin, len=Math.hypot(ir,ig,ib)||1, l2=Math.hypot(r,g,b);
       return l2>20 && (r*ir+g*ig+b*ib)/(len*l2) > 0.9 && Math.max(d[i],d[i+1],d[i+2])-Math.min(d[i],d[i+1],d[i+2])>25; };
     const ny1=Math.min(bot,Math.round(top+U*0.05)), nxS=Math.round(U*0.155);
-    let xs=-1; for (let xx=nxS; xx<Math.min(w,U*0.5) && xs<0; xx++) for (let y=top; y<ny1; y++) if (!isBg((y*w+xx)*4)){ xs=xx; break; }
+    const ink = i => { const mx=Math.max(d[i],d[i+1],d[i+2]), mn=Math.min(d[i],d[i+1],d[i+2]); return (d[i]+d[i+1]+d[i+2])/3 < 200 || mx-mn > 40; };
+    let xs=-1; for (let xx=nxS; xx<Math.min(w,U*0.5) && xs<0; xx++) for (let y=top; y<ny1; y++) if (ink((y*w+xx)*4)){ xs=xx; break; }
     let tealish=0, greyish=0;
-    if (xs>=0) for (let y=top; y<ny1; y++) for (let xx=xs; xx<Math.min(w,xs+U*0.03); xx++){ const i=(y*w+xx)*4; if (isBg(i)) continue;
+    if (xs>=0) for (let y=top; y<ny1; y++) for (let xx=xs; xx<Math.min(w,xs+U*0.03); xx++){ const i=(y*w+xx)*4; if (!ink(i)) continue;
       if (hueLoose(i)) tealish++; else if (Math.max(d[i],d[i+1],d[i+2])-Math.min(d[i],d[i+1],d[i+2])<25) greyish++; }
     nameTeal = (tealish >= 8*(U/924)**2 && tealish > greyish*2) ? 999 : 0;
     const type = (tc/n > 0.012 || nameTeal >= 15*(U/924)**2) ? 'idol' : (minX > U*0.17 ? 'me' : 'other');
@@ -495,6 +508,7 @@ function analyzeAll(){
   shots.forEach(s=>{ if(!s.orig) s.orig={img:s.img,w:s.w,h:s.h}; s.img=s.orig.img; s.w=s.orig.w; s.h=s.orig.h; });
   let fullW=Math.max(...shots.map(s=>s.w));
   const h0=inputHints(); shotBlocks = shots.map(s=>analyzeShot(s,h0.get(s),fullW));
+  const firstTimes=shotBlocks.map(sb=>sb.blocks.map(b=>b.time).filter(v=>v!=null));  // the original pixels read best
   // a cropped screenshot may also have been resized: bring every screenshot to the same scale using the avatar size
   // size reference per screenshot: the avatar; without one, my shortest bubble, using the bubble/avatar ratio
   // learned from screenshots that show both (1.07 if none does)
@@ -515,8 +529,8 @@ function analyzeAll(){
     if (Math.abs(f-1)>0.06){ const c=mk(s.w*f,s.h*f); const x=c.getContext('2d'); x.imageSmoothingQuality='high'; x.drawImage(s.orig.img,0,0,c.width,c.height); s.img=c; s.w=c.width; s.h=c.height; changed=true; } });
   const U = Dref ? Dref/0.108 : fullW;
   shots.forEach(s=>{ s.scale = s.w/s.orig.w; });
-  if (changed || Dref){ fullW=Math.max(...shots.map(s=>s.w)); const hints=inputHints(); shotBlocks = shots.map(s=>analyzeShot(s,hints.get(s),fullW,U)); }
-  shotBlocks.forEach((sb,i)=>{ const t=sb.blocks.map(b=>b.time).filter(v=>v!=null).sort((a,b)=>a-b); const mid=t.length?t[(t.length-1)>>1]:null;
+  if (changed || (Dref && Math.abs(U/fullW-1)>0.06)){ fullW=Math.max(...shots.map(s=>s.w)); const hints=inputHints(); shotBlocks = shots.map(s=>analyzeShot(s,hints.get(s),fullW,U)); }
+  shotBlocks.forEach((sb,i)=>{ let t=sb.blocks.map(b=>b.time).filter(v=>v!=null); if (firstTimes[i] && firstTimes[i].length>t.length) t=firstTimes[i]; t=[...t].sort((a,b)=>a-b); const mid=t.length?t[(t.length-1)>>1]:null;
     // trust it only when at least two messages agree (within 2 minutes); otherwise leave the screenshot where it was
     const agree=mid==null?0:t.filter(v=>Math.abs(v-mid)<=2).length;
     shots[i].tmin = agree>=2 ? mid : null; });
@@ -585,6 +599,10 @@ function items(){
     // whole with its soft shadow (the screenshot's own button gets cut off by the status bar)
     // phones differ in status-bar height (notch, Dynamic Island), so find the title text itself and centre the bar on it
     const cyT=titleCenter(s), bandY=cyT-s.w*0.091, bandH=s.w*0.17, hc=pixelAt(s.img, Math.round(s.w*0.62), Math.round(cyT-s.w*0.045));
+    // Android shows a plain coloured "<" with no round button: there the bar is copied as it is
+    if (isPlainBar(s,cyT)){ const by=Math.max(0,cyT-s.w*0.07), bh=s.w*0.14;
+      list.push({id:'header', h:dw=>bh*dw/refW(), draw:(c,x,y,dw)=>{ const k=dw/refW(), ox=x+(dw-s.w*k)/2; c.fillStyle=hc; c.fillRect(x,y,dw,bh*k); c.drawImage(s.img,0,by,s.w,bh,ox,y,s.w*k,bh*k); }});
+    } else
     list.push({id:'header', h:dw=>bandH*dw/refW(), draw:(c,x,y,dw)=>{ const k=dw/refW(), ox=x+(dw-s.w*k)/2, W=s.w*k;
       c.fillStyle=hc; c.fillRect(x,y,dw,bandH*k);
       // title: middle of the bar only
@@ -616,6 +634,13 @@ function arrowMask(s,cyT,a){
   for (let i=0;i<p.length;i+=4){ const l=(p[i]+p[i+1]+p[i+2])/3, al=Math.max(0,Math.min(1,(bg-8-l)/(bg-40)));
     p[i]=p[i+1]=p[i+2]=31; p[i+3]=Math.round(al*255); }
   x.putImageData(im,0,0); s.arrow=c; s.arrowY=cyT; return c;
+}
+function isPlainBar(s,cyT){
+  const w=s.w, x0=Math.round(w*0.02), x1=Math.round(w*0.09), y0=Math.round(cyT-w*0.03), hh=Math.round(w*0.06);
+  const c=mk(x1-x0,hh), x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(s.img,x0,y0,x1-x0,hh,0,0,x1-x0,hh);
+  const p=x.getImageData(0,0,x1-x0,hh).data, ic=hex(S.color); let n=0;
+  for (let i=0;i<p.length;i+=4) if (Math.abs(p[i]-ic[0])+Math.abs(p[i+1]-ic[1])+Math.abs(p[i+2]-ic[2])<=90) n++;
+  return n >= 20*(w/924)**2;   // an arrow drawn in the idol colour
 }
 function titleCenter(s){
   if (s.titleY!=null && s.titleKey===S.color) return s.titleY;
@@ -891,10 +916,13 @@ function refresh(){
 let anaTimer=0; const scheduleRefresh=()=>{clearTimeout(anaTimer); anaTimer=setTimeout(refresh,200);};
 
 async function loadImg(blob){
-  if (window.createImageBitmap){ try{ const bm=await createImageBitmap(blob,{imageOrientation:'from-image'}); return {img:bm,w:bm.width,h:bm.height}; }catch(e){} }
-  const img=new Image(); const u=URL.createObjectURL(blob);
-  await new Promise((ok,bad)=>{ img.onload=ok; img.onerror=bad; img.src=u; });
-  return {img,w:img.naturalWidth,h:img.naturalHeight};
+  let r=null;
+  if (window.createImageBitmap){ try{ const bm=await createImageBitmap(blob,{imageOrientation:'from-image'}); r={img:bm,w:bm.width,h:bm.height}; }catch(e){} }
+  if (!r){ const img=new Image(); const u=URL.createObjectURL(blob);
+    await new Promise((ok,bad)=>{ img.onload=ok; img.onerror=bad; img.src=u; }); r={img,w:img.naturalWidth,h:img.naturalHeight}; }
+  // large screenshots (e.g. 1290 px wide) are reduced to 1080 px: same output, much less work on the phone
+  if (r.w>1100){ const f=1080/r.w, c=mk(1080,r.h*f), x=c.getContext('2d'); x.imageSmoothingQuality='high'; x.drawImage(r.img,0,0,c.width,c.height); r={img:c,w:c.width,h:c.height}; }
+  return r;
 }
 /* controls */
 let clearTimer=0;
@@ -907,16 +935,20 @@ $('clearAll').onclick=()=>{
 };
 $('file').onchange = async e=>{
   const files=[...e.target.files]; if(!files.length) return;
-  $('status').textContent='讀取截圖中…';
+  const up=$('upStatus'), pause=()=>new Promise(r=>setTimeout(r,30)); up.classList.remove('warn');
   if (demo){ shots=[]; demo=false; }
-  for (const f of files){
+  let bad=0;
+  for (const [i,f] of files.entries()){
+    up.textContent=`讀取截圖 ${i+1} / ${files.length}…`; await pause();
     try{ const r=await loadImg(f); shots.push({...r,name:f.name,blob:f}); }
-    catch(err){ $('status').textContent=`有一張讀不到（${f.name}），請換成 PNG 或 JPG 再試`; }
+    catch(err){ bad++; }
   }
   e.target.value=''; sel=0;
   track('upload'); track('upload-'+(files.length>=10?'10plus':files.length<=3?'1-3':'4-9'));
-  const moved=sortShotsByTime(); refresh();
-  if (moved) $('status').textContent='已依聊天時間自動排好截圖順序';
+  up.textContent='辨識訊息中…'; await pause();
+  sortShotsByTime(); refresh();
+  up.textContent = bad ? `有 ${bad} 張讀不到，請換成 PNG 或 JPG 再試` : (shots.length>20 ? `目前 ${shots.length} 張，超過 20 張手機可能會變慢` : '');
+  up.classList.toggle('warn', !!bad || shots.length>20);
 };
 const bindRange=(id,key,fmt)=>{ const el=$(id); el.value=S[key]; const v=$(id+'Val'); const upd=()=>v.textContent=fmt(S[key]); upd(); el.oninput=()=>{S[key]=+el.value; upd(); scheduleRefresh();}; };
 bindRange('top','top',v=>v+'%'); bindRange('bot','bot',v=>v+'%'); bindRange('tol','tol',v=>v);

@@ -237,7 +237,6 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
   <footer class="foot">
     <div class="foot-links">
       <a class="btn small" id="igLink" href="https://www.instagram.com/_im_hc/" target="_blank" rel="noopener">📷 Instagram @_im_hc</a>
-      <a class="btn small" id="shopLink" href="https://myship.7-11.com.tw/general/detail/GM2602113969462" target="_blank" rel="noopener">🛒 HCㄉ賣場</a>
     </div>
     <p>© 2026 HC．版權所有</p>
   </footer>
@@ -936,7 +935,7 @@ async function loadImg(blob){
   return r;
 }
 /* controls */
-$('igLink').addEventListener('click',()=>track('click-ig')); $('shopLink').addEventListener('click',()=>track('click-shop'));
+$('igLink').addEventListener('click',()=>track('click-ig'));
 let clearTimer=0;
 $('clearAll').onclick=()=>{
   const b=$('clearAll');

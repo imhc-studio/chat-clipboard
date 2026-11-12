@@ -129,6 +129,10 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
 .upstatus{font-size:13px;font-weight:700;color:var(--accent)}
 .upstatus:empty{display:none}
 .upstatus.warn{color:var(--me)}
+.foot{display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0 4px;color:var(--muted);font-size:13px;text-align:center}
+.foot p{margin:0}
+.foot-links{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.foot a{text-decoration:none}
 .status{font-size:13px;color:var(--muted);min-height:1.2em}
 @media (prefers-reduced-motion:no-preference){.btn{transition:background .15s}}
 </style>
@@ -230,6 +234,13 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
     <p class="hint" id="saveHint">點圖片可以放大檢查。iPhone：長按圖片 →「加入照片」；Android：長按 →「下載圖片」。</p>
     <button class="btn primary saveall" id="saveAll" hidden>全部儲存</button>
   </section>
+  <footer class="foot">
+    <div class="foot-links">
+      <a class="btn small" id="igLink" href="https://www.instagram.com/_im_hc/" target="_blank" rel="noopener">📷 Instagram @_im_hc</a>
+      <a class="btn small" id="shopLink" href="https://myship.7-11.com.tw/general/detail/GM2602113969462" target="_blank" rel="noopener">🛒 HCㄉ賣場</a>
+    </div>
+    <p>© 2026 HC．版權所有</p>
+  </footer>
 </main>
 
 <div class="viewer" id="viewer" hidden role="dialog" aria-modal="true" aria-label="預覽輸出圖片">
@@ -925,6 +936,7 @@ async function loadImg(blob){
   return r;
 }
 /* controls */
+$('igLink').addEventListener('click',()=>track('click-ig')); $('shopLink').addEventListener('click',()=>track('click-shop'));
 let clearTimer=0;
 $('clearAll').onclick=()=>{
   const b=$('clearAll');

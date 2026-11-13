@@ -242,6 +242,7 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
   </section>
   <footer class="foot">
     <div class="foot-links">
+      <a class="btn small" id="studioLink" href="https://imhc-studio.github.io/" target="_blank" rel="noopener">✨ 關於我</a>
       <a class="btn small" id="igLink" href="https://www.instagram.com/_im_hc/" target="_blank" rel="noopener">📷 Instagram @_im_hc</a>
     </div>
     <p>© 2026 HC．版權所有</p>
@@ -951,7 +952,7 @@ const closeTut=()=>{ const v=$('tutVideo'); v.pause(); $('tut').hidden=true; doc
 $('tutClose').onclick=closeTut;
 $('tutVideo').addEventListener('ended',()=>track('tutorial-finish'));
 document.addEventListener('keydown',e=>{ if(e.key==='Escape' && !$('tut').hidden) closeTut(); });
-$('igLink').addEventListener('click',()=>track('click-ig'));
+$('igLink').addEventListener('click',()=>track('click-ig')); $('studioLink').addEventListener('click',()=>track('click-studio'));
 let clearTimer=0;
 $('clearAll').onclick=()=>{
   const b=$('clearAll');

@@ -83,6 +83,8 @@ h2 .n{font-family:var(--mono);font-size:13px;width:24px;height:24px;border-radiu
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{border:0;border-radius:0;background:transparent}
+.wmopts .seg{align-self:flex-start}
+.wmfonts button{font-size:15px;padding-left:12px;padding-right:12px}
 .seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);font-weight:700}
 .sw{width:30px;height:30px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0}
 .sw[aria-pressed=true]{border-color:var(--ink)}
@@ -229,9 +231,9 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
         <input type="text" id="wmText" maxlength="40" placeholder="輸入文字或帳號，例如 @your_id" aria-label="浮水印文字">
         <div class="seg" role="group" aria-label="浮水印位置">
           <button class="btn" data-wm="br" aria-pressed="true">下方置中</button>
-          <button class="btn" data-wm="center" aria-pressed="false">正中間</button>
           <button class="btn" data-wm="tile" aria-pressed="false">滿版斜排</button>
         </div>
+        <div class="seg wmfonts" role="group" aria-label="浮水印字體" id="wmFonts"></div>
         <label class="rng">透明度 <span class="val" id="wmAlphaVal"></span><input type="range" id="wmAlpha" min="10" max="90" step="5"></label>
       </div>
     </div>
@@ -272,7 +274,7 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
 
 <script>
 (() => {
-const S = {auto:true, top:32, bot:89.5, color:'#22B3CC', tol:75, logo:true, header:true, mode:'story', style:'plain', size:1, wm:{on:false,text:'',pos:'br',alpha:45}, bg:'#DDF2F6', showOthers:false};
+const S = {auto:true, top:32, bot:89.5, color:'#22B3CC', tol:75, logo:true, header:true, mode:'story', style:'plain', size:1, wm:{on:false,text:'',pos:'br',alpha:45,font:'sys'}, bg:'#DDF2F6', showOthers:false};
 const BGS = ['#DDF2F6','#FCE4EC','#FFF3D6','#E8E4FB','#FFFFFF','#1C2B30'];
 let shots = [], shotBlocks = [], nodes = [], order = [], sel = 0, demo = true;
 const $ = id => document.getElementById(id);
@@ -819,7 +821,11 @@ function renderPreview(){
 
 let urls=[], outTimer=0, outCanvases=[];
 function scheduleOut(){ clearTimeout(outTimer); outTimer=setTimeout(renderOut,250); }
+let outTok=0;
 async function renderOut(){
+  if (shotBlocks.length!==shots.length) return;   // screenshots are still loading; refresh() renders when done
+  // Font still downloading: wait, then queue a fresh render (state may have changed meanwhile).
+  const tok=++outTok, wait=wmFontReady(); if(wait){ await wait; if(tok===outTok) scheduleOut(); return; }
   urls.forEach(u=>URL.revokeObjectURL(u)); urls=[];
   const box=$('results'); box.textContent=''; box.className='results'+(S.mode==='long'?' long':'');
   outCanvases = S.mode==='long' ? renderLong() : renderStory();
@@ -840,22 +846,41 @@ async function renderOut(){
   markPages();
   $('saveAll').onclick = async()=>{ for (const [i,d] of [...box.children].entries()){ if(!(await save(d.blob,i))) break; } };
 }
+// Watermark fonts: open-source Google Fonts, fetched only when chosen (only the character slices the text needs).
+const WM_SYS='-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif';
+const WMF={sys:{label:'系統',fam:'',w:600}, huninn:{label:'粉圓',fam:'Huninn',w:400,css:'Huninn'},
+  wenkai:{label:'文楷',fam:'LXGW WenKai TC',w:700,css:'LXGW+WenKai+TC:wght@700'},
+  serif:{label:'宋體',fam:'Noto Serif TC',w:600,css:'Noto+Serif+TC:wght@600'}};
+const wmFont=()=>WMF[S.wm.font]||WMF.sys;
+const wmFam=f=>f.fam?`"${f.fam}",${WM_SYS}`:WM_SYS;
+let wmCssP=null;
+function wmCss(){ if(wmCssP) return wmCssP;
+  const l=document.createElement('link'); l.rel='stylesheet';
+  wmCssP=new Promise(r=>{ l.onload=l.onerror=r; });
+  l.href='https://fonts.googleapis.com/css2?'+Object.values(WMF).filter(f=>f.css).map(f=>'family='+f.css).join('&')+'&display=swap';
+  document.head.appendChild(l); return wmCssP; }
+const wmTried=new Set();
+// Returns null when nothing needs loading, so rendering stays synchronous (no await) in the usual case.
+function wmFontReady(){
+  const f=wmFont(), t=(S.wm.text||'').trim(); if(!S.wm.on||!t||!f.fam) return null;
+  const key=f.fam+'|'+t; if(wmTried.has(key) || (wmCssP && document.fonts.check(`${f.w} 40px "${f.fam}"`, t))) return null;
+  wmTried.add(key);   // try each font+text once; if it fails, the system font is used
+  return Promise.race([ (async()=>{ await wmCss(); await document.fonts.load(`${f.w} 40px "${f.fam}"`, t); })().catch(()=>{}),
+    new Promise(r=>setTimeout(r,5000)) ]);
+}
 function drawWatermark(c){
   const t=(S.wm.text||'').trim(); if (!S.wm.on || !t) return;
   const x=c.getContext('2d'), W=c.width, H=c.height, story=S.mode==='story';
   const bgRgb = story && S.style==='card' ? hex(S.bg) : (nodes.find(n=>n.on)||{rep:{bg:[255,255,255]}}).rep.bg;
   const dark = bgRgb[0]*.3+bgRgb[1]*.59+bgRgb[2]*.11 < 110;
   x.save(); x.globalAlpha=S.wm.alpha/100; x.fillStyle=dark?'#FFFFFF':'#13262C';
-  const F='-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif';
+  const wf=wmFont(), F=wmFam(wf), FW=wf.w;
   const u=W/1080;
   if (S.wm.pos==='br'){
-    x.font=`600 ${Math.round(34*u)}px ${F}`; x.textAlign='center'; x.textBaseline='alphabetic';
+    x.font=`${FW} ${Math.round(34*u)}px ${F}`; x.textAlign='center'; x.textBaseline='alphabetic';
     x.fillText(t, W/2, story ? H-storyGeom().safeB+60 : H-Math.round(28*u));
-  } else if (S.wm.pos==='center'){
-    x.font=`700 ${Math.round(72*u)}px ${F}`; x.textAlign='center'; x.textBaseline='middle';
-    x.translate(W/2,H/2); x.rotate(-Math.PI/9); x.fillText(t,0,0);
   } else {
-    x.font=`600 ${Math.round(36*u)}px ${F}`; x.textAlign='center'; x.textBaseline='middle';
+    x.font=`${FW} ${Math.round(36*u)}px ${F}`; x.textAlign='center'; x.textBaseline='middle';
     const tw=x.measureText(t).width+120*u, th=200*u;
     x.translate(W/2,H/2); x.rotate(-Math.PI/7);
     const R=Math.hypot(W,H)/2;
@@ -983,10 +1008,15 @@ bindRange('top','top',v=>v+'%'); bindRange('bot','bot',v=>v+'%'); bindRange('tol
 $('idolColor').oninput=e=>{S.color=e.target.value; scheduleRefresh();};
 $('auto').checked=S.auto; const syncManual=()=>document.querySelectorAll('.manual').forEach(e=>e.disabled=S.auto); syncManual();
 $('auto').onchange=e=>{S.auto=e.target.checked; syncManual(); scheduleRefresh();};
-try{ const saved=JSON.parse(localStorage.getItem('dolfan-wm')||'null'); if(saved) Object.assign(S.wm,saved); }catch(e){}
+try{ const saved=JSON.parse(localStorage.getItem('dolfan-wm')||'null'); if(saved) Object.assign(S.wm,saved); if(S.wm.pos!=='tile') S.wm.pos='br'; if(S.wm.font==='maru') S.wm.font='huninn'; if(!WMF[S.wm.font]) S.wm.font='sys'; }catch(e){}
 const saveWm=()=>{ try{ localStorage.setItem('dolfan-wm',JSON.stringify(S.wm)); }catch(e){} };
 const syncWm=()=>{ $('wmOn').checked=S.wm.on; $('wmOpts').hidden=!S.wm.on; $('wmText').value=S.wm.text; $('wmAlpha').value=S.wm.alpha; $('wmAlphaVal').textContent=S.wm.alpha+'%';
-  document.querySelectorAll('[data-wm]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.wm===S.wm.pos)); };
+  document.querySelectorAll('[data-wm]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.wm===S.wm.pos));
+  document.querySelectorAll('[data-wmf]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.wmf===S.wm.font));
+  if(S.wm.on) wmCss(); };
+Object.entries(WMF).forEach(([k,f])=>{ const b=document.createElement('button'); b.className='btn'; b.dataset.wmf=k; b.textContent=f.label;
+  b.style.fontFamily=wmFam(f); b.style.fontWeight=f.w; b.setAttribute('aria-pressed','false');
+  b.onclick=()=>{S.wm.font=k; syncWm(); saveWm(); scheduleOut(); track('wm-font-'+k);}; $('wmFonts').appendChild(b); });
 syncWm();
 $('wmOn').onchange=e=>{S.wm.on=e.target.checked; syncWm(); saveWm(); scheduleOut();};
 $('wmText').oninput=e=>{S.wm.text=e.target.value; saveWm(); scheduleOut();};

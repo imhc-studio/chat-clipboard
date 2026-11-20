@@ -90,6 +90,7 @@ h2 .n{font-family:var(--mono);font-size:13px;width:24px;height:24px;border-radiu
 .sw[aria-pressed=true]{border-color:var(--ink)}
 input[type=color]{width:34px;height:34px;border:1px solid var(--line);border-radius:8px;padding:2px;background:var(--surface)}
 label.chk{display:flex;gap:8px;align-items:center;font-size:14px}
+label.chk.sub{margin:6px 0 0 26px}
 details{border-top:1px solid var(--line);padding-top:10px}
 summary{cursor:pointer;font-weight:700;font-size:14px}
 .adv{display:flex;flex-direction:column;gap:12px;margin-top:10px}
@@ -175,6 +176,7 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
     <p class="hint">打勾的會放進圖裡。順序不對用 ↑ ↓ 調整；想從某則訊息開始換下一張圖，按那則的 ✂。</p>
     <div class="lennote" id="lenNote" aria-live="polite"></div>
     <label class="chk"><input type="checkbox" id="showOthers"> 也顯示其他人的訊息（想留哪則就勾哪則）</label>
+    <label class="chk sub" id="maskRow" hidden><input type="checkbox" id="maskOthers" checked> 其他人的頭像和名字打碼</label>
     <ol class="msgs" id="msgs"></ol>
     <details id="advDetails">
       <summary>辨識設定（認錯時再調）</summary>
@@ -274,12 +276,19 @@ summary{cursor:pointer;font-weight:700;font-size:14px}
 
 <script>
 (() => {
-const S = {auto:true, top:32, bot:89.5, color:'#22B3CC', tol:75, logo:true, header:true, mode:'story', style:'plain', size:1, wm:{on:false,text:'',pos:'br',alpha:45,font:'sys'}, bg:'#DDF2F6', showOthers:false};
+const S = {auto:true, top:32, bot:89.5, color:'#22B3CC', tol:75, logo:true, header:true, mode:'story', style:'plain', size:1, wm:{on:false,text:'',pos:'br',alpha:45,font:'sys'}, bg:'#DDF2F6', showOthers:false, mask:true};
 const BGS = ['#DDF2F6','#FCE4EC','#FFF3D6','#E8E4FB','#FFFFFF','#1C2B30'];
 let shots = [], shotBlocks = [], nodes = [], order = [], sel = 0, demo = true;
 const $ = id => document.getElementById(id);
 // usage counts (public site only, when GoatCounter is loaded): only event names and numbers, never images or text
 const track = (name) => { try{ if (window.goatcounter && window.goatcounter.count) window.goatcounter.count({path:name, title:name, event:true}); }catch(e){} };
+// once per page visit: answers "how many visits needed this", not "how many taps"
+const tracked=new Set(); const trackOnce = name => { if (tracked.has(name)) return; tracked.add(name); track(name); };
+// long-press on an output picture = trying to save it to the photo album
+const trackHold = el => { let t=0; const stop=()=>clearTimeout(t);
+  el.addEventListener('touchstart',()=>{ stop(); t=setTimeout(()=>trackOnce('save-hold'),500); },{passive:true});
+  ['touchend','touchmove','touchcancel'].forEach(e=>el.addEventListener(e,stop,{passive:true}));
+  el.addEventListener('contextmenu',()=>trackOnce('save-hold')); };
 const mk = (w,h) => { const c=document.createElement('canvas'); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); return c; };
 const hex = h => [1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
 const rgb = a => `rgb(${a[0]},${a[1]},${a[2]})`;
@@ -482,13 +491,22 @@ function analyzeShotRaw(shot,hint,fullW,U){
     let D=0;
     // only the columns up to the first empty column after the avatar (the name and bubble start further right)
     if (type!=='me'){ for (let xx=minX; xx<Math.min(w,minX+U*0.2); xx++){ let run=0, any=false; for (let y=top; y<bot; y++){ if (!isBg((y*w+xx)*4)){ any=true; run++; if (run>D) D=run; } else run=0; } if (!any && xx>minX+2) break; } }
+    // other people: where their avatar and name are, so they can be covered for privacy
+    let mask=null;
+    if (type==='other'){ const av=Math.max(D,Math.round(U*0.1)), nx0=xs>=0?xs:nxS, xEnd=Math.min(w,Math.round(U*0.8));
+      // name line: the first run of ink rows right of the avatar, ending at the first empty row
+      let n0=-1,n1=-1,nr=-1;
+      for (let y=top; y<Math.min(bot,top+U*0.08); y++){ let any=false; for (let xx=nx0; xx<xEnd; xx++){ const i=(y*w+xx)*4; if (!isBg(i) && ink(i)){ any=true; if (xx>nr) nr=xx; } }
+        if (any){ if (n0<0) n0=y; n1=y+1; } else if (n0>=0) break; }
+      const ad=Math.max(D,U*0.104), r=ad/2+U*0.012, acx=U*0.091;
+      mask={av:[acx-r,top+ad/2-r,r*2], name: n0>=0 && n1-n0<U*0.05 ? [nx0,n0,nr+1-nx0,n1-n0] : null}; }
     // fingerprint: nearest-sampled grey image, 160 wide, left 83% only (floating button column ignored)
     const bh=bot-top, GW=160, cell=U*0.83/GW, GH=Math.max(4,Math.round(bh/cell)), fp=new Uint8Array(GW*GH);
     for (let cy=0; cy<GH; cy++){ const py=Math.min(bot-1,top+Math.floor((cy+.5)*cell));
       for (let cx=0; cx<GW; cx++){ const px=Math.floor((cx+.5)*cell), i=(py*w+px)*4;
         fp[cy*GW+cx] = (px>=w || inL(px,py)) ? bgGray : (d[i]+d[i+1]+d[i+2])/3; } }
     const time = partial ? null : readTime(d,w,top,bot,U,inL);
-    out.push({top,bot,type,D,time,fp,GH,bgg:(bgc[0]+bgc[1]+bgc[2])/3,hn:bh/w,partial,L,logoHit:!!(L && bot>L.y0 && top<L.y1),bg:bgc});
+    out.push({top,bot,type,D,time,mask,fp,GH,bgg:(bgc[0]+bgc[1]+bgc[2])/3,hn:bh/w,partial,L,logoHit:!!(L && bot>L.y0 && top<L.y1),bg:bgc});
   }
   // avatars with a white background measure smaller than they are: ignore readings far below the largest one
   let Ds=out.filter(b=>!b.partial&&b.D>0).map(b=>b.D).sort((a,b)=>a-b);
@@ -612,6 +630,10 @@ function drawBlock(ctx,b,dx,dy,dw){
     for (let i=0;i<p.length;i+=4){ p[i]+=dR; p[i+1]+=dG; p[i+2]+=dB; }
     x.putImageData(im,0,0);
   }
+  // privacy: other people's avatar becomes a plain circle, their name a soft bar
+  if (S.mask && b.mask){ const M=b.mask, oy=-sy; x.fillStyle='#D5DEE2';
+    const [ax,ay,ad]=M.av; x.beginPath(); x.arc(ox+(ax+ad/2)*k,(ay+oy+ad/2)*k,ad/2*k+1,0,Math.PI*2); x.fill();
+    if (M.name){ const [nx,ny,nw,nh]=M.name, pad=nh*0.25; x.beginPath(); x.roundRect(ox+(nx-pad)*k,(ny+oy-pad)*k,(nw+pad*2)*k,(nh+pad*2)*k,(nh/2+pad)*k); x.fill(); } }
   ctx.drawImage(c,Math.round(dx),Math.round(dy));
   return dh;
 }
@@ -680,9 +702,11 @@ function chatBg(){ const n=nodes.find(n=>n.on); return n ? rgb(n.rep.bg) : '#fff
 
 function renderLong(){
   // manual page breaks split the long picture into several
+  // the title bar (when on) starts every picture, not only the first
   const all=items(); if(!all.length) return [];
-  const groups=[[]]; all.forEach(it=>{ if (it.brk && groups[groups.length-1].length) groups.push([]); groups[groups.length-1].push(it); });
-  return groups.flatMap(longOne);
+  const head=all[0].id==='header'?all[0]:null, msgs=head?all.slice(1):all;
+  const groups=[[]]; msgs.forEach(it=>{ if (it.brk && groups[groups.length-1].length) groups.push([]); groups[groups.length-1].push(it); });
+  return groups.map(g=>head?[head,...g]:g).filter(g=>g.length).flatMap(longOne);
 }
 function longOne(its){
   const W0=1080, gap=W0*0.028;
@@ -700,13 +724,16 @@ function storyGeom(){
   return {PW,PH,safeT,safeB,m,pad,IW,maxH,gap:IW*0.028,plain};
 }
 function paginate(its){
-  const g=storyGeom(), pages=[]; let cur=[], ch=0;
-  for (const it of its){
+  // the title bar (when on) starts every page, not only the first
+  const g=storyGeom(), pages=[], head=its.length && its[0].id==='header' ? its[0] : null;
+  const start=()=>head?[head]:[], hh=head?head.h(g.IW):0;
+  let cur=start(), ch=hh, n=0;
+  for (const it of (head?its.slice(1):its)){
     const ih=it.h(g.IW);
-    if (cur.length && (it.brk || ch+g.gap+ih>g.maxH)){ pages.push({its:cur,h:ch}); cur=[]; ch=0; }
-    ch += (cur.length?g.gap:0)+ih; cur.push(it);
+    if (n && (it.brk || ch+g.gap+ih>g.maxH)){ pages.push({its:cur,h:ch}); cur=start(); ch=hh; n=0; }
+    ch += (cur.length?g.gap:0)+ih; cur.push(it); n++;
   }
-  if (cur.length) pages.push({its:cur,h:ch});
+  if (n || cur.length) pages.push({its:cur,h:ch});
   return pages;
 }
 function renderStory(){
@@ -773,9 +800,9 @@ function renderShots(){
     const idx=document.createElement('span'); idx.className='idx'; idx.textContent=`#${i+1}`;
     const tools=document.createElement('div'); tools.className='tools';
     const mkb=(txt,lab,fn)=>{const b=document.createElement('button'); b.className='btn small'; b.textContent=txt; b.setAttribute('aria-label',lab); b.onclick=fn; tools.appendChild(b);};
-    mkb('←','往前移',()=>{ if(i>0){[shots[i-1],shots[i]]=[shots[i],shots[i-1]]; sel=i-1; refresh();} });
+    mkb('←','往前移',()=>{ if(i>0){ trackOnce('reorder-shot');[shots[i-1],shots[i]]=[shots[i],shots[i-1]]; sel=i-1; refresh();} });
     mkb('✕','刪除這張',()=>{ shots.splice(i,1); sel=Math.max(0,Math.min(sel,shots.length-1)); refresh(); });
-    mkb('→','往後移',()=>{ if(i<shots.length-1){[shots[i+1],shots[i]]=[shots[i],shots[i+1]]; sel=i+1; refresh();} });
+    mkb('→','往後移',()=>{ if(i<shots.length-1){ trackOnce('reorder-shot');[shots[i+1],shots[i]]=[shots[i],shots[i+1]]; sel=i+1; refresh();} });
     d.append(t,idx,tools); box.appendChild(d);
   });
 }
@@ -795,7 +822,7 @@ function renderMsgs(){
     const {shot,sh}=blockSrc(n.rep); const cw=600, c=mk(cw,sh*cw/refW()); drawBlock(c.getContext('2d'),n.rep,0,0,cw);
     const side=document.createElement('div'); side.className='side';
     const chip=document.createElement('span'); chip.className='chip '+n.type; chip.innerHTML='<i></i>'+({idol:'偶像',me:'我',other:'其他'})[n.type];
-    const mv=(dir)=>{ const j=vi+dir; if(j<0||j>=vis.length) return; const a=order.indexOf(id), b=order.indexOf(vis[j]); [order[a],order[b]]=[order[b],order[a]]; renderMsgs(); scheduleOut(); };
+    const mv=(dir)=>{ const j=vi+dir; if(j<0||j>=vis.length) return; trackOnce('reorder-msg'); const a=order.indexOf(id), b=order.indexOf(vis[j]); [order[a],order[b]]=[order[b],order[a]]; renderMsgs(); scheduleOut(); };
     const up=document.createElement('button'); up.className='btn small'; up.textContent='↑'; up.setAttribute('aria-label','往上移'); up.onclick=()=>mv(-1);
     const dn=document.createElement('button'); dn.className='btn small'; dn.textContent='↓'; dn.setAttribute('aria-label','往下移'); dn.onclick=()=>mv(1);
     const cut=document.createElement('button'); cut.className='btn small cut'+(n.brk?' on':''); cut.textContent='✂'; cut.title='從這則開始換下一張圖';
@@ -838,7 +865,7 @@ async function renderOut(){
     const img=document.createElement('img'); img.alt=`輸出第 ${i+1} 張`;
     c.toBlob(b=>{ const u=URL.createObjectURL(b); urls.push(u); img.src=u; d.blob=b; },'image/png');
     d.appendChild(img);
-    img.onclick=()=>openViewer(i);
+    img.onclick=()=>openViewer(i); trackHold(img);
     if (dl){ const b=document.createElement('button'); b.className='btn small'; b.textContent='儲存這張'; b.onclick=()=>save(d.blob,i); d.appendChild(b); }
     box.appendChild(d);
   });
@@ -912,7 +939,7 @@ async function openShotViewer(i){
   $('viewer').hidden=false; document.body.style.overflow='hidden'; $('vClose').focus();
 }
 async function openViewer(i){
-  const list=[...$('results').children]; if(!list.length) return; vMode='out'; if (vIdx!==i || $('viewer').hidden) track('preview');
+  const list=[...$('results').children]; if(!list.length) return; vMode='out'; if (vIdx!==i || $('viewer').hidden){ track('preview'); trackOnce('out-'+S.mode); }
   vIdx=Math.max(0,Math.min(i,list.length-1));
   const dl=await getDl();
   $('vImg').src=list[vIdx].querySelector('img').src;
@@ -926,9 +953,11 @@ async function openViewer(i){
 }
 function closeViewer(){ $('viewer').hidden=true; document.body.style.overflow=''; }
 $('vClose').onclick=closeViewer;
+{ const v=$('vImg'), hold=()=>{ if (vMode==='out') trackOnce('save-hold'); }; let t=0; const stop=()=>clearTimeout(t);
+  v.addEventListener('touchstart',()=>{ stop(); t=setTimeout(hold,500); },{passive:true}); ['touchend','touchmove','touchcancel'].forEach(e=>v.addEventListener(e,stop,{passive:true})); v.addEventListener('contextmenu',hold); }
 const vGo=i=>vMode==='shot'?openShotViewer(i):openViewer(i);
 $('vPrev').onclick=()=>vGo(vIdx-1); $('vNext').onclick=()=>vGo(vIdx+1);
-const vMove=dir=>{ const j=vIdx+dir; if (j<0||j>=shots.length) return; [shots[vIdx],shots[j]]=[shots[j],shots[vIdx]]; sel=j; refresh(); openShotViewer(j); };
+const vMove=dir=>{ const j=vIdx+dir; if (j<0||j>=shots.length) return; trackOnce('reorder-shot'); [shots[vIdx],shots[j]]=[shots[j],shots[vIdx]]; sel=j; refresh(); openShotViewer(j); };
 $('vMoveL').onclick=()=>vMove(-1); $('vMoveR').onclick=()=>vMove(1);
 $('vSave').onclick=async()=>{ const d=$('results').children[vIdx]; if(d && await save(d.blob,vIdx)) closeViewer(); };
 document.addEventListener('keydown',e=>{ if($('viewer').hidden) return; if(e.key==='Escape') closeViewer(); if(e.key==='ArrowLeft') vGo(vIdx-1); if(e.key==='ArrowRight') vGo(vIdx+1); });
@@ -937,18 +966,37 @@ function getDl(){ if(!dlP){ try{ dlP=(window.claude&&window.claude.use)?Promise.
 async function save(blob,i){
   const dl=await getDl(); if(!dl||!blob) return false;
   const t=new Date(), stamp=`${t.getFullYear()}${String(t.getMonth()+1).padStart(2,'0')}${String(t.getDate()).padStart(2,'0')}`;
-  try{ await dl.save({filename:`dolfan-chat_${stamp}_${i+1}.png`, data:blob}); $('status').textContent='已交給手機儲存'; return true; }
+  trackOnce('save-btn'); try{ await dl.save({filename:`dolfan-chat_${stamp}_${i+1}.png`, data:blob}); $('status').textContent='已交給手機儲存'; return true; }
   catch(e){ $('status').textContent = e&&e.code==='declined' ? '取消儲存' : '這裡沒辦法直接儲存，請長按圖片儲存'; return false; }
 }
 
-// put screenshots in chat-time order (used right after an upload; manual ← → moves are kept afterwards)
+// put screenshots in chat order (used right after an upload; manual ← → moves are kept afterwards)
+// 1) overlap: the same message sits lower in the earlier screenshot (the chat scrolls up). This works even when
+//    every screenshot shows the same minute, which is common when the idol replies quickly.
+// 2) the time printed next to the messages, for screenshots that do not overlap.
 function sortShotsByTime(){
   if (shots.length<2) return false;
   analyzeAll();
-  // sort only the screenshots with a trusted time; the others stay in their upload slots
-  const known=shots.map((s,i)=>({s,i,t:s.tmin})).filter(k=>k.t!=null);
-  const slots=known.map(k=>k.i), sortedKnown=[...known].sort((a,b)=>(a.t-b.t)||(a.i-b.i));
-  const next=[...shots]; slots.forEach((slot,j)=>{ next[slot]=sortedKnown[j].s; });
+  const n=shots.length, vote=shots.map(()=>new Float32Array(n));
+  for (const nd of nodes){ const occ=nd.occ.filter(o=>!o.partial);
+    for (const a of occ) for (const b of occ){ if (a.si===b.si) continue;
+      const ya=a.top/shots[a.si].h, yb=b.top/shots[b.si].h; if (ya-yb>0.03) vote[a.si][b.si]++; } }
+  const before=(i,j)=>vote[i][j]>vote[j][i];
+  // a screenshot without a readable time takes the time of a screenshot it overlaps
+  const t=shots.map(s=>s.tmin);
+  for (let k=0;k<n;k++) for (let i=0;i<n;i++) if (t[i]==null) for (let j=0;j<n;j++) if (t[j]!=null && (vote[i][j]||vote[j][i])){ t[i]=t[j]; break; }
+  // sort only screenshots we know something about; the others stay in their upload slots
+  const known=[...Array(n).keys()].filter(i=>t[i]!=null || vote[i].some(v=>v) || vote.some(r=>r[i]));
+  const indeg=new Map(known.map(i=>[i,0]));
+  for (const i of known) for (const j of known) if (before(i,j)) indeg.set(j,indeg.get(j)+1);
+  const done=new Set(), seq=[];
+  while (seq.length<known.length){
+    let cand=known.filter(i=>!done.has(i)&&indeg.get(i)===0); if (!cand.length) cand=known.filter(i=>!done.has(i));
+    cand.sort((a,b)=>((t[a]??1e9)-(t[b]??1e9))||(a-b));
+    const i=cand[0]; done.add(i); seq.push(i);
+    for (const j of known) if (!done.has(j) && before(i,j)) indeg.set(j,indeg.get(j)-1);
+  }
+  const next=[...shots]; known.forEach((slot,k)=>{ next[slot]=shots[seq[k]]; });
   const moved=next.some((s,j)=>s!==shots[j]);
   shots=next;
   return moved;
@@ -1024,7 +1072,8 @@ $('wmAlpha').oninput=e=>{S.wm.alpha=+e.target.value; $('wmAlphaVal').textContent
 document.querySelectorAll('[data-wm]').forEach(b=>b.onclick=()=>{S.wm.pos=b.dataset.wm; syncWm(); saveWm(); scheduleOut();});
 $('logo').checked=S.logo; $('logo').onchange=e=>{S.logo=e.target.checked; scheduleRefresh();};
 $('header').checked=S.header; $('header').onchange=e=>{S.header=e.target.checked; scheduleOut();};
-$('showOthers').onchange=e=>{S.showOthers=e.target.checked; renderMsgs();};
+$('showOthers').onchange=e=>{S.showOthers=e.target.checked; $('maskRow').hidden=!S.showOthers; renderMsgs();};
+$('maskOthers').onchange=e=>{S.mask=e.target.checked; if(!S.mask) trackOnce('unmask-other'); renderMsgs(); scheduleOut();};
 const setMode=m=>{S.mode=m; $('modeStory').setAttribute('aria-pressed',m==='story'); $('modeLong').setAttribute('aria-pressed',m==='long'); syncRows(); scheduleOut();};
 function syncRows(){ $('styleRow').hidden=S.mode==='long'; $('bgRow').hidden=S.mode==='long'||S.style==='plain'; }
 const setStyle=v=>{S.style=v; $('stylePlain').setAttribute('aria-pressed',v==='plain'); $('styleCard').setAttribute('aria-pressed',v==='card'); syncRows(); scheduleOut();};

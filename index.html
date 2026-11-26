@@ -464,9 +464,11 @@ function analyzeShotRaw(shot,hint,fullW,U){
     if (bot-top < U*0.026) continue;
     let minX=w, tc=0, n=0;
     const tealMax=U*0.8;   // idol bubbles sit on the left; the right edge holds buttons
+    // the avatar column is skipped: Dolfan's default avatar (a teal/purple ring) matches the idol colour
+    const tealMin=U*0.155;
     for (let y=top; y<bot; y+=2) for (let xx=0; xx<w; xx+=2){
       if (inL(xx,y)) continue; const i=(y*w+xx)*4; n++;
-      if (!isBg(i)){ if (xx<minX) minX=xx; if (xx<tealMax && isIdol(i)) tc++; }
+      if (!isBg(i)){ if (xx<minX) minX=xx; if (xx>=tealMin && xx<tealMax && isIdol(i)) tc++; }
     }
     // idol: a bubble in the idol colour, or (for photos / stickers with no bubble) the name label above it in that colour
     let nameTeal=0;

@@ -379,11 +379,14 @@ function analyzeShotRaw(shot,hint,fullW,U){
   for (let y=0; y<h; y+=7) for (let xx=0; xx<w; xx+=7){ const i=(y*w+xx)*4; const k=(d[i]>>3)<<10|(d[i+1]>>3)<<5|(d[i+2]>>3); hist.set(k,(hist.get(k)||0)+1); }
   let bk=0,bn=-1; for (const [k,n] of hist) if (n>bn){bn=n;bk=k;}
   const q = [((bk>>10)&31)*8+4, ((bk>>5)&31)*8+4, (bk&31)*8+4];
-  // exact background: average of the real pixels in that bucket (so white stays 255, not 252)
-  let sr=0,sg=0,sb2=0,sn=0;
+  // exact background: the most common real colour near that bucket (so white stays 255, not 252).
+  // Not an average: on Android the chat is 250 grey but the header bar is 255 white, and averaging gave 251,
+  // which showed as faint bands between messages (strong after IG recompresses the story).
+  const ex = new Map();
   for (let y=0; y<h; y+=7) for (let xx=0; xx<w; xx+=7){ const i=(y*w+xx)*4;
-    if (Math.abs(d[i]-q[0])<=4&&Math.abs(d[i+1]-q[1])<=4&&Math.abs(d[i+2]-q[2])<=4){ sr+=d[i]; sg+=d[i+1]; sb2+=d[i+2]; sn++; } }
-  const bgc = sn ? [Math.round(sr/sn),Math.round(sg/sn),Math.round(sb2/sn)] : q;
+    if (Math.abs(d[i]-q[0])<=4&&Math.abs(d[i+1]-q[1])<=4&&Math.abs(d[i+2]-q[2])<=4){ const k=d[i]<<16|d[i+1]<<8|d[i+2]; ex.set(k,(ex.get(k)||0)+1); } }
+  let ek=-1,en=-1; for (const [k,n] of ex) if (n>en){en=n;ek=k;}
+  const bgc = ek>=0 ? [(ek>>16)&255,(ek>>8)&255,ek&255] : q;
   // tight: on a light-grey background (Android) my grey bubble differs from it by only a few shades
   const isBg = i => Math.abs(d[i]-bgc[0])+Math.abs(d[i+1]-bgc[1])+Math.abs(d[i+2]-bgc[2]) <= 14;
   const bgGray=(bgc[0]+bgc[1]+bgc[2])/3;

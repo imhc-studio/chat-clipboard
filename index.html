@@ -702,8 +702,11 @@ function titleCenter(s){
   s.titleY = best ? (best[0]+best[1])/2 : w*0.176; s.titleKey=S.color; return s.titleY;
 }
 function pixelAt(img,x,y){ const c=mk(1,1), t=c.getContext('2d',{willReadFrequently:true}); t.drawImage(img,x,y,1,1,0,0,1,1); const p=t.getImageData(0,0,1,1).data; return `rgb(${p[0]},${p[1]},${p[2]})`; }
-function chatBgArr(){ const n=nodes.find(n=>n.on); return n ? n.rep.bg : [255,255,255]; }
-function chatBg(){ const n=nodes.find(n=>n.on); return n ? rgb(n.rep.bg) : '#fff'; }
+// Android's chat is a very light grey (250) under a white header: it is turned into plain white automatically,
+// so the output matches iPhone and no grey/white edge shows (drawBlock shifts every message by the same amount)
+function chatBgArr(){ const n=nodes.find(n=>n.on); if (!n) return [255,255,255]; const g=n.rep.bg;
+  return Math.min(...g)>=238 && Math.max(...g)-Math.min(...g)<=6 ? [255,255,255] : g; }
+function chatBg(){ return rgb(chatBgArr()); }
 
 function renderLong(){
   // manual page breaks split the long picture into several
